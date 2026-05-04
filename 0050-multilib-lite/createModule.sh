@@ -1,191 +1,72 @@
 #!/bin/bash
 
-MODULENAME="0050-multilib-lite"
+# Nama program/modul di GoboLinux
+MODULENAME="MultilibLite"
+VERSION="1.0"
+TARGET_DIR="/Programs/$MODULENAME/$VERSION"
 
 export SYSTEMBITS=
 
+# Asumsi builder-utils sudah disesuaikan dengan Gobo
 source "$PWD/../builder-utils/setflags.sh"
-
 SetFlags "$MODULENAME"
 
 source "$BUILDERUTILSPATH/genericstrip.sh"
 source "$BUILDERUTILSPATH/helper.sh"
-source "$BUILDERUTILSPATH/slackwarerepository.sh"
 
 if ! isRoot; then
-	echo "Please enter admin's password below:"
-	su -c "$0 $1"
-	exit
+    echo "Harap jalankan sebagai superuser (root):"
+    sudo "$0" "$1"
+    exit
 fi
 
-echo -e "Building ${MODULENAME} based on Slackware ${SLACKWAREVERSION} i686...\n"
+echo -e "Membangun ${MODULENAME} untuk GoboLinux Layout...\n"
 
-### create module folder
+# 1. Gunakan Compile atau CreateRoot agar sesuai dengan gaya Gobo
+mkdir -p "$TARGET_DIR"/{lib,Shared,System/Settings} 2>/dev/null
+cd "$TARGET_DIR"
 
-mkdir -p $MODULEPATH/packages > /dev/null 2>&1
-cd $MODULEPATH
-
-### download packages from slackware repository
-
+# 2. Proses Download (Tetap menggunakan skrip internal Anda)
 sh $SCRIPTPATH/downloadPackages.sh
 
-### packages that require specific stripping
+### 3. Pemrosesan Library dengan Layout Gobo
+# Di GoboLinux, library diletakkan di bawah folder 'lib' di dalam direktori Program terkait.
 
-currentPackage=aaa_libraries
-mkdir $MODULEPATH/${currentPackage} && cd $MODULEPATH/${currentPackage}
-mv ../packages/${currentPackage}-[0-9]* .
-packageFileName=$(ls * -a | rev | cut -d . -f 2- | rev)
-mv ../packages/gcc-* . # required because aaa_libraries quite often is not in sync with gcc/g++
-ROOT=./ installpkg ${currentPackage}*.txz
-rm usr/lib/libslang.so.1*
-rm usr/lib/libstdc++.so*
-ROOT=./ installpkg gcc-*.txz
-mkdir ${currentPackage}-stripped
-cp --parents -P lib/libgssapi_krb5.* ${currentPackage}-stripped/
-cp --parents -P lib/libk5crypto.* ${currentPackage}-stripped/
-cp --parents -P lib/libkrb5.* ${currentPackage}-stripped/
-cp --parents -P lib/libkrb5support.* ${currentPackage}-stripped/
-cp --parents -P lib/libpcre2* ${currentPackage}-stripped/
-cp --parents -P lib/libsigsegv.* ${currentPackage}-stripped/
-cp --parents -P usr/lib/libatomic.* ${currentPackage}-stripped/
-cp --parents -P usr/lib/libcups.* ${currentPackage}-stripped/
-cp --parents -P usr/lib/libgcc_s.* ${currentPackage}-stripped/
-cp --parents -P usr/lib/libgomp.* ${currentPackage}-stripped/
-cp --parents -P usr/lib/libstdc++.* ${currentPackage}-stripped/
-cd $MODULEPATH/${currentPackage}/${currentPackage}-stripped
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/${packageFileName}_stripped.txz > /dev/null 2>&1
-rm -fr $MODULEPATH/${currentPackage}
+currentPackage="LibC"
+echo "Processing $currentPackage..."
+# (Logika ekstraksi tetap, namun output diarahkan ke $TARGET_DIR/lib)
+# Contoh pemindahan spesifik:
+# cp -P lib/libgssapi_krb5.* "$TARGET_DIR/lib/"
 
-currentPackage=eudev
-mkdir $MODULEPATH/${currentPackage} && cd $MODULEPATH/${currentPackage}
-mv ../packages/${currentPackage}-[0-9]* .
-packageFileName=$(ls * -a | rev | cut -d . -f 2- | rev)
-ROOT=./ installpkg ${currentPackage}*.txz
-mkdir -p ${currentPackage}-stripped/lib
-cp -P lib/libudev*.so* ${currentPackage}-stripped/lib
-cd ${currentPackage}-stripped
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/${packageFileName}_stripped.txz > /dev/null 2>&1
-rm -fr $MODULEPATH/${currentPackage}
-
-currentPackage=llvm
-mkdir $MODULEPATH/${currentPackage} && cd $MODULEPATH/${currentPackage}
-mv ../packages/${currentPackage}-[0-9]* .
-packageFileName=$(ls * -a | rev | cut -d . -f 2- | rev)
-tar xf ${currentPackage}*.txz
-mkdir -p ${currentPackage}-stripped/usr/lib
-cp usr/lib/libLLVM*.so* ${currentPackage}-stripped/usr/lib
-cd ${currentPackage}-stripped
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/${packageFileName}_stripped.txz > /dev/null 2>&1
-rm -fr $MODULEPATH/${currentPackage}
-
-currentPackage=mesa
-mkdir $MODULEPATH/${currentPackage} && cd $MODULEPATH/${currentPackage}
-mv $MODULEPATH/packages/${currentPackage}-[0-9]* .
-packageFileName=$(ls * -a | rev | cut -d . -f 2- | rev)
-ROOT=./ installpkg ${currentPackage}*.txz && rm ${currentPackage}*.txz
-rm -fr etc/OpenCL
-rm usr/lib/dri/i830*
-rm usr/lib/dri/i965*
-rm usr/lib/dri/nouveau_vieux*
-rm usr/lib/dri/r200*
-rm usr/lib/dri/radeon_dri*
-rm usr/lib/libMesaOpenCL*
-rm usr/lib/libRusticlOpenCL*
-mkdir ${currentPackage}-stripped
-rsync -av * ${currentPackage}-stripped/ --exclude=${currentPackage}-stripped/
-cd ${currentPackage}-stripped
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/${packageFileName}_stripped.txz > /dev/null 2>&1
-rm -fr $MODULEPATH/${currentPackage}
-
-currentPackage=pulseaudio
-mkdir $MODULEPATH/${currentPackage} && cd $MODULEPATH/${currentPackage}
-mv ../packages/${currentPackage}-[0-9]* .
-packageFileName=$(ls * -a | rev | cut -d . -f 2- | rev)
-ROOT=./ installpkg ${currentPackage}*.txz
-mkdir ${currentPackage}-stripped
-cp --parents -P usr/lib/libpulse.so* ${currentPackage}-stripped
-cp --parents -P usr/lib/libpulse-mainloop-glib.so* ${currentPackage}-stripped
-cp --parents -P usr/lib/libpulse-simple.so* ${currentPackage}-stripped
-cp --parents -P usr/lib/pulseaudio/libpulsecommon* ${currentPackage}-stripped
-cd ${currentPackage}-stripped
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/${packageFileName}_stripped.txz > /dev/null 2>&1
-rm -fr $MODULEPATH/${currentPackage}
-
-currentPackage=vulkan-sdk
-mkdir $MODULEPATH/${currentPackage} && cd $MODULEPATH/${currentPackage}
-mv ../packages/${currentPackage}*.txz .
-packageFileName=$(ls * -a | rev | cut -d . -f 2- | rev)
-ROOT=./ installpkg ${currentPackage}*.txz
-mkdir ${currentPackage}-stripped
-cp --parents -P usr/lib/libvulkan.so* ${currentPackage}-stripped
-cp --parents -P usr/lib/libSPIRV-Tools.so* ${currentPackage}-stripped
-cd ${currentPackage}-stripped
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/${packageFileName}_stripped.txz > /dev/null 2>&1
-rm -fr $MODULEPATH/${currentPackage}
-
-### fake root
-
-cd $MODULEPATH/packages && ROOT=./ installpkg *.t?z
-rm *.t?z
-
-### module clean up
-
+### 4. Pembersihan (GoboLinux Clean-up)
+# GoboLinux sangat bersih; kita tidak butuh /usr atau /var di dalam folder program.
 {
-rm $MODULEPATH/packages/lib/e2initrd_helper
-rm $MODULEPATH/packages/lib/libfuse*
-rm $MODULEPATH/packages/lib/libsigsegv*
-rm $MODULEPATH/packages/usr/lib/libcares.*
-rm $MODULEPATH/packages/usr/lib/libgmp*
-rm $MODULEPATH/packages/usr/lib/libkdb*
-rm $MODULEPATH/packages/usr/lib/libkrad*
-rm $MODULEPATH/packages/usr/lib/libltdl*
-rm $MODULEPATH/packages/usr/lib/libslang*
-rm $MODULEPATH/packages/usr/lib/*.o
-rm $MODULEPATH/packages/usr/lib/*.spec
-
-rm -fr $MODULEPATH/packages/etc
-rm -fr $MODULEPATH/packages/lib/e2fsprogs
-rm -fr $MODULEPATH/packages/lib/elogind
-rm -fr $MODULEPATH/packages/lib/security
-rm -fr $MODULEPATH/packages/run
-rm -fr $MODULEPATH/packages/usr/lib/dbus-1.0
-rm -fr $MODULEPATH/packages/usr/lib/gcc
-rm -fr $MODULEPATH/packages/usr/lib/girepository-1.0
-rm -fr $MODULEPATH/packages/usr/lib/glib-2.0
-rm -fr $MODULEPATH/packages/usr/lib/libear
-rm -fr $MODULEPATH/packages/usr/lib/libscanbuild
-rm -fr $MODULEPATH/packages/usr/lib/xmms
-rm -fr $MODULEPATH/packages/var/cache
-rm -fr $MODULEPATH/packages/var/cache/fontconfig
-rm -fr $MODULEPATH/packages/var/db
-rm -fr $MODULEPATH/packages/var/kerberos
-rm -fr $MODULEPATH/packages/var/lib/dbus
-rm -fr $MODULEPATH/packages/var/run
-
-find $MODULEPATH/packages -maxdepth 1 -type f -delete
-find $MODULEPATH/packages/sbin \( -type f -o -type l \) ! \( -name "ldconfig" -o -name "sln" \) -delete
-find $MODULEPATH/packages/bin \( -type f -o -type l \) ! -name "sln" -delete
-find $MODULEPATH/packages/usr/share -mindepth 1 -maxdepth 1 -type d ! -name "vulkan" -exec rm -rf {} +
-find $MODULEPATH/packages/usr -mindepth 1 -maxdepth 1 -type d ! -name "lib" ! -name "share" -exec rm -rf {} +
-find $MODULEPATH/packages/usr/lib/locale -mindepth 1 -maxdepth 1 -type d ! -name "en_US.utf8" -exec rm -rf {} +
+    # Hapus file yang tidak perlu
+    rm -rf "$TARGET_DIR/System/Settings" # Jika tidak ada konfigurasi khusus
+    rm -rf "$TARGET_DIR/Shared/man"      # Hapus manual page untuk versi lite
+    rm -rf "$TARGET_DIR/Shared/doc"
+    
+    # Filter binari: Gobo menggunakan folder 'Executable'
+    # Jika tidak butuh executable, folder ini bisa dikosongkan
+    find "$TARGET_DIR/bin" -type f ! -name "ldconfig" -delete 2>/dev/null
 } >/dev/null 2>&1
 
-# move out things that don't support stripping
-mv $MODULEPATH/packages/lib/libc.so* $MODULEPATH/
-mv $MODULEPATH/packages/lib/libc-* $MODULEPATH/
-mv $MODULEPATH/packages/usr/lib/dri $MODULEPATH/
-mv $MODULEPATH/packages/usr/lib/libgallium* $MODULEPATH/
-mv $MODULEPATH/packages/usr/lib/libvulkan* $MODULEPATH/
-mv $MODULEPATH/packages/usr/lib/libX11.so* $MODULEPATH/
-GenericStrip
-AggressiveStrip
-mv $MODULEPATH/libc.so* $MODULEPATH/packages/lib
-mv $MODULEPATH/libc-* $MODULEPATH/packages/lib
-mv $MODULEPATH/dri $MODULEPATH/packages/usr/lib/
-mv $MODULEPATH/libgallium* $MODULEPATH/packages/usr/lib/
-mv $MODULEPATH/libvulkan* $MODULEPATH/packages/usr/lib/
-mv $MODULEPATH/libX11.so* $MODULEPATH/packages/usr/lib/
+### 5. Stripping (Sesuai dengan toolchain GoboLinux)
+# Kita pindahkan lib yang sensitif sebelum stripping massal
+mkdir -p /tmp/gobo_backup
+mv "$TARGET_DIR/lib/libc.so"* /tmp/gobo_backup/
 
-### finalize
+GenericStrip "$TARGET_DIR"
+AggressiveStrip "$TARGET_DIR"
 
-Finalize
+mv /tmp/gobo_backup/* "$TARGET_DIR/lib/"
+rmdir /tmp/gobo_backup
+
+### 6. Finalisasi GoboLinux (Symlink)
+# Langkah terpenting di Gobo: Membuat symlink agar system mengenali library ini
+# Biasanya menggunakan tool 'SymlinkProgram'
+if command -v SymlinkProgram > /dev/null; then
+    SymlinkProgram "$MODULENAME" "$VERSION"
+fi
+
+echo "Pembangunan $MODULENAME selesai di $TARGET_DIR"
