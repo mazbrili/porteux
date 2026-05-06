@@ -1,65 +1,76 @@
 #!/bin/bash
 
+# Pastikan variabel ini disesuaikan di environment Anda
+GOBO_MODULE_PATH="${GOBO_MODULE_PATH:-/System/Variable/tmp/gobolinux-build}"
+
 CopyToDevel() {
-	mkdir -p "$PORTEUXBUILDERPATH"/05-devel/packages > /dev/null 2>&1
-	cd "$MODULEPATH"/packages
-	find . -regex '.*\.\(h\|c\|m4\|make\|cmake\|a\|o\|pc\|gir\|deps\|vapi\|in\)$' -exec cp --parents {} "$PORTEUXBUILDERPATH"/05-devel/packages \;
-	cp -r --parents usr/lib/python*/site-packages/*-info "$PORTEUXBUILDERPATH"/05-devel/packages > /dev/null 2>&1
+    # Di GoboLinux, file devel ada di /Programs/<Pkg>/<Ver>/include dan /System/Index/include
+    mkdir -p "$GOBO_MODULE_PATH"/05-devel/packages > /dev/null 2>&1
+    cd "$MODULEPATH"/packages || return
+
+    # Mencari header, static libs, dan metadata kompilasi dalam struktur Gobo
+    # Biasanya tersimpan di folder 'include', 'lib/pkgconfig', atau 'Shared/cmake'
+    find . -regex '.*\.\(h\|c\|m4\|make\|cmake\|a\|o\|pc\|gir\|deps\|vapi\|in\)$' \
+        -exec cp --parents {} "$GOBO_MODULE_PATH"/05-devel/packages \;
+
+    # Penyesuaian Python: Di GoboLinux pathnya adalah Lib/python*/...
+    cp -r --parents Lib/python*/site-packages/*-info "$GOBO_MODULE_PATH"/05-devel/packages > /dev/null 2>&1
 }
 
 CopyToMultiLanguage() {
-	mkdir -p "$PORTEUXBUILDERPATH"/08-multilanguage/packages > /dev/null 2>&1
-	cd "$MODULEPATH"/packages
-	[ -e usr/share/featherpad/translations ] && cp -r --parents usr/share/featherpad/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/locale ] && cp -r --parents usr/share/locale "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/libfm-qt/translations ] && cp -r --parents usr/share/libfm-qt/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/lximage-qt/translations ] && cp -r --parents usr/share/lximage-qt/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/lxqt/translations ] && cp -r --parents usr/share/lxqt/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/lxqt-archiver/translations ] && cp -r --parents usr/share/lxqt-archiver/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/obconf-qt/translations ] && cp -r --parents usr/share/obconf-qt/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/pavucontrol-qt/translations ] && cp -r --parents usr/share/pavucontrol-qt/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/pcmanfm-qt/translations ] && cp -r --parents usr/share/pcmanfm-qt/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/qps/translations ] && cp -r --parents usr/share/qps/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/qterminal/translations ] && cp -r --parents usr/share/qterminal/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/qtermwidget5/translations ] && cp -r --parents usr/share/qtermwidget5/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/screengrab/translations ] && cp -r --parents usr/share/screengrab/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/sddm/translations ] && cp -r --parents usr/share/sddm/translations "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/nm-tray ] && cp -r --parents usr/share/nm-tray/*.qm "$PORTEUXBUILDERPATH"/08-multilanguage/packages
-	[ -e usr/share/X11/locale ] && cp -r --parents usr/share/X11/locale "$PORTEUXBUILDERPATH"/08-multilanguage/packages
+    mkdir -p "$GOBO_MODULE_PATH"/08-multilanguage/packages > /dev/null 2>&1
+    cd "$MODULEPATH"/packages || return
+
+    # Di GoboLinux, 'share' biasanya di-symlink ke 'Shared'
+    # Kita periksa direktori Shared/locale dan Shared/translations
+    
+    LOCALES=(
+        "Shared/locale"
+        "Shared/translations"
+        "Shared/featherpad/translations"
+        "Shared/lxqt/translations"
+        "Shared/pavucontrol-qt/translations"
+        "Shared/X11/locale"
+    )
+
+    for dir in "${LOCALES[@]}"; do
+        [ -e "$dir" ] && cp -r --parents "$dir" "$GOBO_MODULE_PATH"/08-multilanguage/packages
+    done
 }
 
 InstallAdditionalPackages() {
-	cd "$MODULEPATH"/packages
-	cp "$SCRIPTPATH"/packages/*.t?z .
-	ROOT=./ installpkg *.t?z
-	rm *.t?z
+    cd "$MODULEPATH"/packages || return
+    # GoboLinux menggunakan 'Compile' atau 'InstallPackage'
+    # Jika Anda memiliki file .tar.bz2 (Gobo Package), kita ekstrak manual ke struktur /Programs
+    for pkg in "$SCRIPTPATH"/packages/*.tar.bz2; do
+        [ -e "$pkg" ] || continue
+        # Ekstrak paket ke root sementara
+        tar -xjf "$pkg" -C .
+    done
+    
+    # Catatan: Di GoboLive, kita mungkin perlu menjalankan 'SymlinkProgram' 
+    # setelah ISO booting untuk mengaitkan folder ke /System/Index
 }
 
 MakeModule() {
-	zstdFlags="-comp zstd -b 256K -Xcompression-level 22"
-	mksquashfs "${1}" "${2}" $zstdFlags -noappend
+    # Tetap menggunakan SquashFS dengan kompresi Zstd (standar Porteux/Gobo modern)
+    zstdFlags="-comp zstd -b 256K -Xcompression-level 22"
+    mksquashfs "${1}" "${2}" $zstdFlags -noappend
 }
 
 Finalize() {
-	# generate module version file
-	mkdir -p "$MODULEPATH"/packages/etc/porteux
-	echo $MODULENAME.xzm:$(date +%Y%m%d) > "$MODULEPATH"/packages/etc/porteux/$MODULENAME.ver
+    # Versi GoboLinux: Informasi sistem diletakkan di /System/Settings
+    mkdir -p "$MODULEPATH"/packages/System/Settings/Porteus
+    echo "$MODULENAME.xzm:$(date +%Y%m%d)" > "$MODULEPATH"/packages/System/Settings/Porteus/"$MODULENAME".ver
 
-	# create module
-	MakeModule "$MODULEPATH"/packages/ "$MODULEPATH"/$MODULENAME-$PORTEUXBUILD-$(date +%Y%m%d).xzm
+    # Membuat modul .xzm
+    MakeModule "$MODULEPATH"/packages/ "$MODULEPATH"/"$MODULENAME"-Gobo-"$(date +%Y%m%d)".xzm
 
-	# script clean up
-	rm -fr "$MODULEPATH"/packages/
+    # Pembersihan
+    rm -fr "$MODULEPATH"/packages/
 }
 
 isRoot() {
-	groupsList=$(groups)
-
-	for entry in $groupsList; do
-		if [[ "$entry" == "root" ]]; then
-			return 0
-		fi
-	done
-
-	return 1
+    # Di GoboLinux, user root tetap memiliki GID 0
+    [[ $(id -u) -eq 0 ]]
 }
