@@ -2,104 +2,100 @@
 
 MODULENAME=05-devel
 
+# Memuat utility yang sudah disesuaikan ke versi Gobo pada percakapan sebelumnya
 source "$PWD/../builder-utils/setflags.sh"
 
 SetFlags "$MODULENAME"
 
 source "$BUILDERUTILSPATH/genericstrip.sh"
 source "$BUILDERUTILSPATH/helper.sh"
-source "$BUILDERUTILSPATH/slackwarerepository.sh"
+# Kita asumsikan skrip ini sudah disesuaikan untuk mengambil paket dari mirror Gobo atau GitHub
+# source "$BUILDERUTILSPATH/goborepository.sh" 
 
 if ! isRoot; then
-	echo "Please enter admin's password below:"
-	su -c "$0 $1"
+	echo "GoboLinux: Memerlukan hak akses root."
+	sudo "$0" "$@"
 	exit
 fi
 
-echo -e "Building ${MODULENAME} based on Slackware ${SLACKWAREVERSION} ${ARCH}...\n"
+echo -e "Building ${MODULENAME} for GoboLinux 17 (${ARCH})...\n"
 
-### create module folder
+### 1. Create module folder
+mkdir -p "$MODULEPATH/packages" > /dev/null 2>&1
+cd "$MODULEPATH"
 
-mkdir -p $MODULEPATH/packages > /dev/null 2>&1
-cd $MODULEPATH
+### 2. Download packages
+# Menggunakan skrip downloader yang sudah kita modifikasi sebelumnya untuk mengambil biner Gobo
+sh "$SCRIPTPATH/downloadPackages.sh"
 
-### download packages from slackware repository
-
-sh $SCRIPTPATH/downloadPackages.sh
-
-if [ ! -f $MODULEPATH/packages/kernel-headers*.txz ]; then
-	cd ${SCRIPTPATH}/../000-kernel
-	ONLYHEADERS=yes sh createModule.sh || wget https://slackware.uk/cumulative/slackware64-current/slackware64/d/kernel-headers-$KERNELVERSION-x86-1.txz -P $MODULEPATH/packages || exit 1
+# Penanganan Kernel Headers versi GoboLinux
+if [ ! -d "$MODULEPATH/packages/Programs/Kernel-Headers" ]; then
+	echo "Fetching Kernel Headers for GoboLinux..."
+	# Di Gobo, headers biasanya ada di /Programs/Kernel-Headers/Current
+	# Kita salin dari sistem host jika tidak ditemukan di folder download
+	mkdir -p "$MODULEPATH/packages/Programs/Kernel-Headers"
+	cp -a /Programs/Kernel-Headers/Current "$MODULEPATH/packages/Programs/Kernel-Headers/" || exit 1
 fi
 
-### fake root
+### 3. Install Packages (Fake Root)
+cd "$MODULEPATH/packages"
+# Di GoboLinux, kita mengekstrak .tar.bz2 (paket standar Gobo)
+for pkg in *.tar.bz2; do
+    [ -f "$pkg" ] || continue
+    tar -xjf "$pkg" -C .
+    rm "$pkg"
+done
 
-cd $MODULEPATH/packages && ROOT=./ installpkg *.t?z
-rm *.t?z
-
-### copy language files to 08-multilanguage
-
+### 4. Copy language files
+# Fungsi ini sudah kita modifikasi untuk mencari di folder 'Shared/locale'
 CopyToMultiLanguage
 
-### module clean up
-
-cd $MODULEPATH/packages/
+### 5. Module Clean Up (GoboLinux Hierarchy Style)
+cd "$MODULEPATH/packages/"
 
 {
-rm usr/lib/python*/site-packages/setuptools/_distutils/command/*.exe
+# Hapus file yang tidak diperlukan dalam modul devel
+find . -name "*.exe" -delete
 
-rm -fr usr/doc
-rm -fr usr/etc
-rm -fr usr/info
-rm -fr usr/lib${SYSTEMBITS}/bash
-rm -fr usr/local
-rm -fr usr/man
-rm -fr usr/share/applications
-rm -fr usr/share/bash-completion
-rm -fr usr/share/cmake-*/Help
-rm -fr usr/share/devhelp
-rm -fr usr/share/doc
-rm -fr usr/share/gitk
-rm -fr usr/share/gnome
-rm -fr usr/share/gnome-doc-utils
-rm -fr usr/share/help
-rm -fr usr/share/icons
-rm -fr usr/share/locale
-rm -fr usr/share/valadoc-*
-rm -fr usr/x86_64-slackware-linux
-rm -fr var/lib/pkgtools/douninst.sh
-rm -fr var/lib/pkgtools/setup
-rm -fr var/log/pkgtools
-rm -fr var/log/setup
+# Hapus dokumentasi dan file non-essential (Path disesuaikan ke Gobo)
+# Di Gobo, 'share' biasanya adalah 'Shared'
+rm -fr Shared/doc
+rm -fr Shared/info
+rm -fr Shared/man
+rm -fr Shared/help
+rm -fr Shared/icons
+rm -fr Shared/locale
+rm -fr Shared/applications
+rm -fr Shared/bash-completion
+rm -fr Shared/cmake-*/Help
+rm -fr Shared/devhelp
+rm -fr Shared/gnome
+rm -fr Shared/doc
 
-# already included in aaa_libraries-stripped - keeping them will prevent 05-devel from being deactivated
-rm usr/lib${SYSTEMBITS}/libatomic.so*
-rm usr/lib${SYSTEMBITS}/libgcc_s.so*
-rm usr/lib${SYSTEMBITS}/libgmp.so*
-rm usr/lib${SYSTEMBITS}/libgmpxx.so*
-rm usr/lib${SYSTEMBITS}/libgomp.so*
-rm usr/lib${SYSTEMBITS}/libltdl.so*
-rm usr/lib${SYSTEMBITS}/libstdc++.so*
+# Hapus library yang biasanya sudah ada di modul dasar (Glibc/GCC-Runtime)
+# Agar tidak konflik saat deactivasi modul
+rm -f Lib/libatomic.so*
+rm -f Lib/libgcc_s.so*
+rm -f Lib/libgmp.so*
+rm -f Lib/libgmpxx.so*
+rm -f Lib/libgomp.so*
+rm -f Lib/libltdl.so*
+rm -f Lib/libstdc++.so*
 
-# already included in binutils-stripped
-rm usr/bin/ar
-rm usr/bin/strip
-rm usr/lib${SYSTEMBITS}/libbfd.so
-rm usr/lib${SYSTEMBITS}/libbfd-*.so
-rm usr/lib${SYSTEMBITS}/libsframe*.so
+# Hapus tool yang sudah ada di modul binutils-stripped
+rm -f bin/ar
+rm -f bin/strip
+rm -f Lib/libbfd.so
+rm -f Lib/libbfd-*.so
+rm -f Lib/libsframe*.so
 
-# remove 32-bit files
-rm -fr usr/include/c++/*/x86_64-slackware-linux/32
-rm -fr usr/lib/pkgconfig
-rm -fr usr/lib${SYSTEMBITS}/gcc/x86_64-slackware-linux/*/32
-rm usr/lib/*
-
+# Pembersihan folder kosong dan file .la (libtool)
 find . -name '*.la' -delete
-find usr/ -type d -empty -delete
+find . -type d -empty -delete
 } >/dev/null 2>&1
 
+# Melakukan stripping biner untuk memperkecil ukuran modul
 AggressiveStrip
 
-### finalize
-
+### 6. Finalize
 Finalize
