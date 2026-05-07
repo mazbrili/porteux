@@ -1,12 +1,13 @@
 #!/bin/bash
 
-# Memuat utility pengunduh yang sudah disesuaikan
+# Memuat utility pengunduh dan splitter
 source "$BUILDERUTILSPATH/latestfromgithub.sh"
+source "$BUILDERUTILSPATH/gobo_splitter.sh"
 
 PRGNAM=Zstd
 CWD=$(dirname "$0")
-# TMP berada di dalam folder modul agar terisolasi
 TMP="$MODULEPATH/$PRGNAM"
+DEST="$TMP/package-$PRGNAM"
 
 set -e
 
@@ -15,23 +16,21 @@ set -e
 mkdir -p "$TMP"
 cd "$TMP"
 
-# Ambil informasi versi terbaru dari GitHub Facebook
-info=$(DownloadLatestFromGithub "facebook" "zstd" "kernel")
+# 1. FETCH VERSION & SOURCE
+# Mengambil dari Facebook Zstd
+info=$(DownloadLatestFromGithub "facebook" "zstd")
 VERSION=${info#* }
 
-# Definisi Path sesuai hierarki GoboLinux
-PKG_DIR="/Programs/$PRGNAM/$VERSION"
-DEST="$TMP/package-$PRGNAM"
-WORK_AREA="$MODULEPATH/work_area/$PRGNAM"
-
-# Ekstraksi source
 tar xf zstd-$VERSION.tar.?z
 cd zstd-$VERSION
 
-# Masuk ke folder build CMake
+# 2. PATH DEFINITIONS
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+
+# 3. CONFIGURE (CMake)
+# Masuk ke folder build khusus cmake
 cd build/cmake
 
-# Konfigurasi menggunakan Clang & Ninja sesuai skrip asli Porteux
 CC=clang \
 CXX=clang++ \
 LDFLAGS="$LLDFLAGS" \
@@ -51,28 +50,21 @@ cmake -B build -S . \
 	-DZSTD_LZMA_SUPPORT=ON \
 	-DZSTD_ZLIB_SUPPORT=ON
 
-# Proses kompilasi dan instalasi sementara ke DESTDIR
+# 4. BUILD & INSTALL
 DESTDIR="$DEST" ninja -C build install
 
-# --- TAHAP INTEGRASI GOBO ---
+# 5. GOBOLINUX ADJUSTMENTS
+# Zstd terkadang menginstal file dokumentasi tambahan di Shared/doc
+rm -rf "$DEST$PKG_DIR/Shared/doc"
 
-# Hapus file .la (libtool) yang tidak diperlukan
-find "$DEST" -type f -name "*.la" -delete
+# 6. CALL GENERIC SPLITTER
+# Memindahkan zstd.h, libzstd.pc, dsb ke 05-devel
+GoboSplitter "$PRGNAM" "$VERSION" "$DEST"
 
-# Pastikan work_area bersih sebelum disalin
-rm -rf "$WORK_AREA"
-mkdir -p "$WORK_AREA"
-
-# Salin hasil instalasi ke work_area modul
-# Struktur yang dihasilkan: $WORK_AREA/Programs/Zstd/$VERSION/...
-cp -a "$DEST"/* "$WORK_AREA/"
-
-echo ""
-echo "========================================================"
-echo "Selesai: $PRGNAM versi $VERSION"
-echo "Lokasi: $WORK_AREA"
-echo "========================================================"
-echo ""
-
-# Bersihkan sisa kompilasi untuk menghemat ruang
+# 7. CLEANUP
 rm -rf "$TMP"
+
+echo "========================================================"
+echo "Build $PRGNAM-$VERSION selesai."
+echo "Fitur: LZ4, LZMA, ZLIB support enabled."
+echo "========================================================"
