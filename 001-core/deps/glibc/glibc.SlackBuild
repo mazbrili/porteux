@@ -1,82 +1,103 @@
 #!/bin/bash
 
-PRGNAM=glibc
-
+PRGNAM=Glibc
 CWD=$(dirname "$0")
-TMP=$MODULEPATH/$PRGNAM
-PKG=$TMP/package-$PRGNAM
+TMP="$MODULEPATH/$PRGNAM"
 
 set -e
 
-[ -e $TMP ] && rm -rf $TMP
-mkdir -p $TMP $PKG
-cd $TMP
+[ -e "$TMP" ] && rm -rf "$TMP"
+mkdir -p "$TMP"
+cd "$TMP"
 
-VERSION=$(curl -s https://ftp.gnu.org/gnu/${PRGNAM}/ | grep "${PRGNAM}-[0-9]" | grep ".tar.xz" | grep -Ev "sig" | cut -d "=" -f 5 | cut -d "\"" -f 2 | sort -Vr | head -1 | cut -d "-" -f 2 | rev | cut -d "." -f 3- | rev)
-wget https://ftp.gnu.org/gnu/${PRGNAM}/${PRGNAM}-${VERSION}.tar.xz
+# Mengambil versi terbaru dari GNU FTP
+VERSION=$(curl -s https://ftp.gnu.org/gnu/glibc/ | grep "glibc-[0-9]" | grep ".tar.xz" | grep -Ev "sig" | cut -d "=" -f 5 | cut -d "\"" -f 2 | sort -Vr | head -1 | cut -d "-" -f 2 | rev | cut -d "." -f 3- | rev)
+wget "https://ftp.gnu.org/gnu/glibc/glibc-${VERSION}.tar.xz"
 
-tar xf $PRGNAM-$VERSION.tar.?z
-cd $PRGNAM-$VERSION
+tar xf glibc-$VERSION.tar.xz
+cd glibc-$VERSION
 
-cp -f $CWD/SUPPORTED localedata
-patch -p1 < $CWD/glibc.locale.no-archive.patch
-patch -p1 < $CWD/glibc-2.32.en_US.no.am.pm.date.format.patch
-[[ $ARCHITECTURELEVEL == "x86-64-v3" ]] || [[ $ARCHITECTURELEVEL == "x86-64-v4" ]] && patch -p0 < $CWD/improve-performance-avx2.patch
+# Persiapan Path Gobo
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+DEST="$TMP/package-$PRGNAM"
+WORK_AREA="$MODULEPATH/work_area/$PRGNAM"
 
-mkdir build-glibc-$VERSION
-cd build-glibc-$VERSION
+# Terapkan Patch Porteux
+cp -f "$CWD/SUPPORTED" localedata
+patch -p1 < "$CWD/glibc.locale.no-archive.patch"
+patch -p1 < "$CWD/glibc-2.32.en_US.no.am.pm.date.format.patch"
+[[ "$ARCHITECTURELEVEL" == "x86-64-v3" ]] || [[ "$ARCHITECTURELEVEL" == "x86-64-v4" ]] && patch -p0 < "$CWD/improve-performance-avx2.patch"
 
+mkdir build && cd build
+
+# Hapus flag yang bisa merusak build glibc
 LDFLAGS="${LDFLAGS/-Wl,--gc-sections/}"
 
+# Konfigurasi khusus GoboLinux
+# --with-headers diarahkan ke System Index karena headers kernel ada di sana
 CFLAGS="${GCCFLAGS/-flto=auto/} -fPIC" \
 CXXFLAGS="${GCCFLAGS} -fvisibility-inlines-hidden -fPIC" \
 ../configure \
-	--prefix=/usr \
-	--libdir=/usr/lib${SYSTEMBITS} \
+	--prefix="$PKG_DIR" \
+	--libdir="$PKG_DIR/Lib" \
+	--includedir="$PKG_DIR/include" \
+	--sysconfdir="/System/Settings" \
 	--enable-kernel=6.1 \
-	--with-headers=/usr/include \
+	--with-headers="/System/Index/include" \
 	--with-tls \
 	--with-__thread \
 	--without-cvs \
 	--disable-nscd \
 	--disable-profile \
 	--disable-werror \
-	$ARCH-porteux-linux
+	--build="$ARCH-gobolinux-linux"
 
 make -j$NUMBERTHREADS
-make -j$NUMBERTHREADS install install_root=$PKG
-make -j$NUMBERTHREADS localedata/install-locales install_root=$PKG DESTDIR=$PKG
+make -j$NUMBERTHREADS install install_root="$DEST"
 
-pushd $CWD
-PKG=$PKG sh libxcrypt.build
+# Instalasi locale minimal (hanya en_US sesuai skrip asli)
+make -j$NUMBERTHREADS localedata/install-locales install_root="$DEST"
+
+# --- TAHAP INTEGRASI LIBXCRYPT ---
+# Jalankan libxcrypt yang sudah kita modifikasi sebelumnya
+pushd "$CWD"
+MODULEPATH="$MODULEPATH" PKG="$DEST" sh libxcrypt.build
 popd
 
-mkdir -p $PKG/bin $PKG/etc/profile.d
-( cd $PKG/bin; ln -sf /sbin/sln sln )
-install -m755 $CWD/glibc.csh $CWD/glibc.sh $PKG/etc/profile.d/
+# --- PENYESUAIAN STRUKTUR GOBOLINUX ---
 
-( cd $PKG/lib${SYSTEMBITS}
-	# Since glibc-2.34 shared objects are using their ABI sonames directly, which is not a good idea
-	for cryptlib in libcrypt.so.* ; do
-		CRYPTSO=$(echo $cryptlib | cut -f 3 -d .)
-		mv $cryptlib libcrypt${CRYPTSO}-${VERSION}.so
-	done
-	for library in *.so.* ; do
-		mv $library $(echo $library | cut -f 1 -d .)-${VERSION}.so
-	done
-)
+# 1. Pindahkan binari ke folder bin di dalam Program
+mkdir -p "$DEST$PKG_DIR/bin"
+# Di Gobo, sbin biasanya digabung ke bin untuk kemudahan
+if [ -d "$DEST$PKG_DIR/sbin" ]; then
+    mv "$DEST$PKG_DIR/sbin"/* "$DEST$PKG_DIR/bin/"
+    rmdir "$DEST$PKG_DIR/sbin"
+fi
 
-find $PKG | xargs file | grep "executable" | grep ELF | cut -f 1 -d : | xargs strip --strip-debug 2> /dev/null
-find $PKG | xargs file | grep "shared object" | grep ELF | cut -f 1 -d : | xargs strip --strip-debug 2> /dev/null
+# 2. Perbaikan Dynamic Linker
+# Sangat penting: Sistem membutuhkan ld-linux.so di path standar agar biner ELF bisa jalan.
+# Kita akan membuat symlink di dalam /Programs yang nanti akan di-link ke /lib64.
+mkdir -p "$DEST/System/Index/Lib"
+cd "$DEST$PKG_DIR/Lib"
+for linker in ld-linux*; do
+    [ -f "$linker" ] && ln -sf "$PKG_DIR/Lib/$linker" "$DEST/System/Index/Lib/$linker"
+done
 
-rm $PKG/etc/ld.so.cache
-rm -fr $PKG/usr/share/i18n/charmaps
-rm -fr $PKG/usr/share/locale
-find $PKG/lib${SYSTEMBITS} -type l -exec rm {} \+
-find $PKG/usr/share/i18n/locales -mindepth 1 -maxdepth 1 \( -type f -o -type d \) ! \( -name "en_US" -o -name "POSIX" \) -delete
+# 3. Pembersihan (Cleaning)
+rm -f "$DEST/System/Settings/ld.so.cache"
+rm -rf "$DEST$PKG_DIR/Shared/i18n/charmaps"
+rm -rf "$DEST$PKG_DIR/Shared/locale"
+# Sisakan hanya locale minimal
+find "$DEST$PKG_DIR/Shared/i18n/locales" -mindepth 1 -maxdepth 1 ! \( -name "en_US" -o -name "POSIX" \) -delete
 
-mkdir -p $PKG/install
-cat $CWD/slack-desc > $PKG/install/slack-desc
+# 4. Integrasi ke Work Area
+rm -rf "$WORK_AREA"
+mkdir -p "$WORK_AREA"
+cp -a "$DEST"/* "$WORK_AREA/"
 
-cd $PKG
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/$PRGNAM-$VERSION-$ARCH-1_porteux.txz
+echo "========================================================"
+echo "Glibc $VERSION Berhasil Dibangun untuk GoboLinux"
+echo "Work Area: $WORK_AREA"
+echo "========================================================"
+
+rm -rf "$TMP"
