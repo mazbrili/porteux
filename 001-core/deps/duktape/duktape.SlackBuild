@@ -1,35 +1,59 @@
 #!/bin/bash
 
+# Load helpers
 source "$BUILDERUTILSPATH/latestfromgithub.sh"
+source "$BUILDERUTILSPATH/gobo_splitter.sh"
 
-PRGNAM=duktape
-
+PRGNAM=Duktape
 CWD=$(dirname "$0")
-TMP=$MODULEPATH/$PRGNAM
-PKG=$TMP/package-$PRGNAM
+TMP="$MODULEPATH/$PRGNAM"
+DEST="$TMP/package-$PRGNAM"
 
 set -e
 
-[ -e $TMP ] && rm -rf $TMP
-mkdir -p $TMP $PKG
-cd $TMP
+[ -e "$TMP" ] && rm -rf "$TMP"
+mkdir -p "$TMP"
+cd "$TMP"
 
-info=$(DownloadLatestFromGithub "svaarala" ${PRGNAM})
+# 1. FETCH VERSION & SOURCE
+info=$(DownloadLatestFromGithub "svaarala" "duktape")
 VERSION=${info#* }
 
-tar xf $PRGNAM-$VERSION.tar.?z
-cd $PRGNAM-$VERSION
+tar xf duktape-$VERSION.tar.?z
+cd duktape-$VERSION
 
+# 2. PATH DEFINITIONS
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+
+# 3. PRE-BUILD TUNING
+# Mengaktifkan FASTINT untuk performa lebih baik di sistem ringan
 sed -i 's/^#undef DUK_USE_FASTINT$/#define DUK_USE_FASTINT/' src/duk_config.h
+# Memastikan link ke library math (-lm) benar pada shared library
 sed -i 's/duktape\.c/& -lm/' Makefile.sharedlibrary
 
+# 4. BUILD & INSTALL
+# Kita arahkan INSTALL_PREFIX ke folder program Gobo
+# LIBDIR diarahkan ke 'Lib' (bukan /usr/lib64)
 CFLAGS="$GCCFLAGS" \
-make -j${NUMBERTHREADS} -f Makefile.sharedlibrary LIBDIR=/lib${SYSTEMBITS} INSTALL_PREFIX=/usr DESTDIR=$PKG install
+make -j${NUMBERTHREADS} -f Makefile.sharedlibrary \
+    INSTALL_PREFIX="$PKG_DIR" \
+    LIBDIR="Lib" \
+    DESTDIR="$DEST" \
+    install
 
-rm $PKG/usr/lib${SYSTEMBITS}/libduktaped.*
+# 5. GOBOLINUX ADJUSTMENTS
+# Duktape sering menyertakan biner debug, kita hapus jika ada agar modul ringan
+rm -f "$DEST$PKG_DIR/Lib"/libduktaped.*
 
-mkdir -p $PKG/install
-cat $CWD/slack-desc > $PKG/install/slack-desc
+# 6. CALL GENERIC SPLITTER
+# Duktape memiliki header (duktape.h, duk_config.h) yang sangat penting.
+# Splitter akan memindahkannya ke work_area/05-devel/Duktape
+GoboSplitter "$PRGNAM" "$VERSION" "$DEST"
 
-cd $PKG
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/$PRGNAM-$VERSION-$ARCH-1_porteux.txz
+# 7. CLEANUP
+rm -rf "$TMP"
+
+echo "========================================================"
+echo "Build $PRGNAM-$VERSION selesai."
+echo "Runtime: 001-core, Devel: 05-devel"
+echo "========================================================"
