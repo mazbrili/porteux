@@ -1,10 +1,13 @@
 #!/bin/bash
 
+# Load helpers
 source "$BUILDERUTILSPATH/latestfromgithub.sh"
+source "$BUILDERUTILSPATH/gobo_splitter.sh"
 
 PRGNAM=Polkit
 CWD=$(dirname "$0")
 TMP="$MODULEPATH/$PRGNAM"
+DEST="$TMP/package-$PRGNAM"
 
 set -e
 
@@ -12,21 +15,21 @@ set -e
 mkdir -p "$TMP"
 cd "$TMP"
 
-# Ambil versi terbaru dari GitHub polkit-org
+# 1. FETCH VERSION & SOURCE
 info=$(DownloadLatestFromGithub "polkit-org" "polkit")
 VERSION=${info#* }
-
-# Path standar GoboLinux
-PKG_DIR="/Programs/$PRGNAM/$VERSION"
-DEST="$TMP/package-$PRGNAM"
-WORK_AREA="$MODULEPATH/work_area/$PRGNAM"
 
 tar xf polkit-$VERSION.tar.?z*
 cd polkit-$VERSION
 
-# Terapkan patch Porteux jika masih relevan
+# 2. PATH DEFINITIONS
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+
+# 3. PATCHING
 [ -f "$CWD/dont-set-wheel-group-as-admin.patch" ] && patch -p0 < "$CWD/dont-set-wheel-group-as-admin.patch"
 
+# 4. CONFIGURE (Meson)
+# Perhatikan: --libdir dsb di Meson bersifat relatif terhadap prefix jika tidak diawali '/'
 mkdir build && cd build
 CFLAGS="$GCCFLAGS" \
 meson setup .. \
@@ -42,7 +45,7 @@ meson setup .. \
 	--buildtype=release \
 	-Dintrospection=true \
 	-Dsession_tracking=elogind \
-	-Dsystemdsystemunitdir="Lib/systemd/user" \
+	-Dsystemdsystemunitdir="Lib/systemd/system" \
 	-Dauthfw=pam \
 	-Dpam_module_dir="/System/Index/Lib/security" \
 	-Dpam_prefix="/System/Settings/pam.d" \
@@ -51,34 +54,39 @@ meson setup .. \
 	-Dman=false \
 	-Dtests=false
 
+# 5. BUILD & INSTALL
 DESTDIR="$DEST" ninja -j${NUMBERTHREADS} install
 
-# --- TAHAP INTEGRASI GOBO ---
+# 6. GOBOLINUX INTEGRATION & FIXES
 
-# Polkit membutuhkan direktori spesifik di /System/Settings untuk policy
-# Kita pastikan struktur di dalam DEST mencerminkan ini
-mkdir -p "$DEST/System/Settings/polkit-1"
-
-# Pindahkan file dari prefix/etc jika meson tidak menghormati sysconfdir secara penuh
+# A. Meson terkadang tetap membuat folder 'etc' dan 'var' di dalam prefix 
+# jika sysconfdir/localstatedir tidak diproses secara absolut oleh skrip instalasi paket.
 if [ -d "$DEST$PKG_DIR/etc" ]; then
+    mkdir -p "$DEST/System/Settings"
     cp -a "$DEST$PKG_DIR/etc/"* "$DEST/System/Settings/"
     rm -rf "$DEST$PKG_DIR/etc"
 fi
 
-# Pastikan folder target di work_area bersih
-rm -rf "$WORK_AREA"
-mkdir -p "$WORK_AREA"
+if [ -d "$DEST$PKG_DIR/var" ]; then
+    mkdir -p "$DEST/System/Variable"
+    cp -a "$DEST$PKG_DIR/var/"* "$DEST/System/Variable/"
+    rm -rf "$DEST$PKG_DIR/var"
+fi
 
-# Salin ke work_area
-# Struktur: $WORK_AREA/Programs/Polkit/$VERSION dan $WORK_AREA/System/Settings
-cp -a "$DEST"/* "$WORK_AREA/"
+# B. Polkit butuh user/group khusus. Biasanya diatur saat instalasi OS, 
+# tapi kita pastikan folder perizinannya benar.
+chmod 700 "$DEST/System/Settings/polkit-1/rules.d" 2>/dev/null || true
+chmod 700 "$DEST/System/Variable/lib/polkit-1" 2>/dev/null || true
 
-echo ""
-echo "========================================================"
-echo "Selesai: $PRGNAM versi $VERSION"
-echo "Work Area: $WORK_AREA"
-echo "========================================================"
-echo ""
+# 7. CALL GENERIC SPLITTER
+# Polkit menyertakan libpolkit-gobject dan libpolkit-agent.
+# Header dan file .pc akan masuk ke 05-devel.
+GoboSplitter "$PRGNAM" "$VERSION" "$DEST"
 
-# Bersihkan temporary build folder
+# 8. CLEANUP
 rm -rf "$TMP"
+
+echo "========================================================"
+echo "Build $PRGNAM-$VERSION selesai."
+echo "Konfigurasi sistem dipindahkan ke /System/Settings"
+echo "========================================================"
