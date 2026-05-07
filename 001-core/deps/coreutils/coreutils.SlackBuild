@@ -1,74 +1,70 @@
 #!/bin/bash
 
+# Load helpers
+source "$BUILDERUTILSPATH/latestfromgithub.sh"
+source "$BUILDERUTILSPATH/gobo_splitter.sh"
+
 PRGNAM=CoreUtils
-# Versi dibersihkan untuk standar Gobo (misal: 9.4)
 CWD=$(dirname "$0")
-
-# Setup folder kerja sesuai variabel yang kita bahas sebelumnya
 TMP="$MODULEPATH/$PRGNAM"
-# Lokasi instalasi akhir sesuai hierarki GoboLinux
-VERSION_FULL=$(curl -s https://ftp.gnu.org/gnu/${coreutils}/ | grep "coreutils-[0-9]" | grep ".tar.xz" | grep -v "sig" | sed -n 's/.*coreutils-\([0-9.]*\)\.tar\.xz.*/\1/p' | sort -Vr | head -1)
-VERSION=${VERSION_FULL:-"9.4"} # Fallback jika curl gagal
-
-# Path absolut untuk GoboLinux
-PKG_DIR="/Programs/$PRGNAM/$VERSION"
-DEST="$TMP/package-$PRGNAM"
 
 set -e
 
 [ -e "$TMP" ] && rm -rf "$TMP"
-mkdir -p "$TMP" "$DEST"
+mkdir -p "$TMP"
 cd "$TMP"
 
-# Download Source (Tetap menggunakan GNU mirror sesuai request sebelumnya)
-wget "https://ftp.gnu.org/gnu/coreutils/coreutils-${VERSION}.tar.xz"
+# 1. FETCH VERSION & SOURCE
+# Mengambil versi terbaru dari GNU FTP
+VERSION=$(curl -s https://ftp.gnu.org/gnu/coreutils/ | grep "coreutils-[0-9]" | grep ".tar.xz" | grep -v "sig" | sed -n 's/.*coreutils-\([0-9.]*\)\.tar\.xz.*/\1/p' | sort -Vr | head -1)
+VERSION=${VERSION:-"9.5"} # Default fallback
 
+wget "https://ftp.gnu.org/gnu/coreutils/coreutils-${VERSION}.tar.xz"
 tar xf coreutils-${VERSION}.tar.xz
 cd coreutils-${VERSION}
 
-# Terapkan patch (Pastikan file .patch ada di folder skrip)
+# 2. PATH DEFINITIONS (Gobo Hierarchy)
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+DEST="$TMP/package-$PRGNAM"
+
+# 3. PATCHING
 [ -f "$CWD/fix-cpu-info.patch" ] && patch -p1 < "$CWD/fix-cpu-info.patch"
 [ -f "$CWD/no-ls-quoting.patch" ] && patch -p1 < "$CWD/no-ls-quoting.patch"
 
-# Konfigurasi ala GoboLinux
-# Kita gunakan --prefix agar menunjuk ke folder program, bukan root sistem
+# 4. CONFIGURE
+# GoboLinux menggunakan --datarootdir="$PKG_DIR/Shared" untuk manual/data
 FORCE_UNSAFE_CONFIGURE=1 \
 CFLAGS="$GCCFLAGS -ffat-lto-objects" \
 ./configure \
   --prefix="$PKG_DIR" \
   --bindir="$PKG_DIR/bin" \
   --sbindir="$PKG_DIR/bin" \
-  --libexecdir="$PKG_DIR/libexec" \
+  --libexecdir="$PKG_DIR/Libexec" \
   --datarootdir="$PKG_DIR/Shared" \
+  --sysconfdir="/System/Settings" \
   --enable-install-program=arch \
   --with-openssl=no \
   --enable-no-install-program=hostname,kill,uptime \
   --build="$ARCH-gobolinux-linux"
 
-make $NUMJOBS
-# Install ke folder temporary DESTDIR
+# 5. BUILD & INSTALL
+make -j$NUMBERTHREADS
 make install DESTDIR="$DEST"
 
-# Penyesuaian Hierarki Gobo di dalam DESTDIR
-# 'make install' akan membuat struktur /Programs/CoreUtils/... di dalam $DEST
-# Kita bersihkan file yang tidak perlu untuk modul ISO Porteus yang ringan
-cd "$DEST$PKG_DIR"
+# 6. GOBOLINUX ADJUSTMENTS
+# Membersihkan sampah sebelum splitter bekerja
+rm -rf "$DEST$PKG_DIR/Shared/info"
+rm -rf "$DEST$PKG_DIR/Shared/man"
+rm -rf "$DEST$PKG_DIR/Shared/locale"
 
-rm -rf Shared/info
-rm -rf Shared/man
-rm -rf Shared/locale
+# 7. CALL GENERIC SPLITTER
+# Ini akan memindahkan file devel (jika ada) ke work_area/05-devel
+# dan file runtime ke work_area/001-core
+GoboSplitter "$PRGNAM" "$VERSION" "$DEST"
 
-# Opsional: Jika Anda ingin memisahkan devel files (headers)
-# rm -rf include
-
-# Finalisasi: Membungkus menjadi modul .xzm (Gaya Porteus)
-# Di GoboLinux Porteus-style, kita membungkus seluruh folder /Programs
-echo "Membungkus modul ${PRGNAM}..."
-mkdir -p "$MODULEPATH/packages"
-
-# Kita pindah ke root folder DEST agar mksquashfs mengambil struktur /Programs
-cd "$DEST"
-mksquashfs . "$MODULEPATH/packages/${PRGNAM}-${VERSION}-${ARCH}-Gobo.xzm" -comp zstd -b 256K -noappend
-
-# Cleanup folder temporary build
+# 8. CLEANUP
 rm -rf "$TMP"
+
+echo "========================================================"
+echo "Build $PRGNAM-$VERSION selesai dan telah dipisahkan."
+echo "========================================================"
