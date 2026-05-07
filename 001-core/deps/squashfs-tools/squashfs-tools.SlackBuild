@@ -1,27 +1,39 @@
 #!/bin/bash
 
+# Memuat utility pengunduh terbaru
 source "$BUILDERUTILSPATH/latestfromgithub.sh"
 
-PRGNAM=squashfs-tools
-
+PRGNAM=Squashfs-Tools
 CWD=$(dirname "$0")
-TMP=$MODULEPATH/$PRGNAM
-PKG=$TMP/package-$PRGNAM
+# Folder temporary build
+TMP="$MODULEPATH/$PRGNAM"
 
 set -e
 
-[ -e $TMP ] && rm -rf $TMP
-mkdir -p $TMP $PKG
-cd $TMP
+# Bersihkan folder kerja
+[ -e "$TMP" ] && rm -rf "$TMP"
+mkdir -p "$TMP"
+cd "$TMP"
 
-info=$(DownloadLatestFromGithub "plougher" ${PRGNAM} "squashfs-tools|CVE")
+# Ambil versi terbaru dari GitHub plougher
+info=$(DownloadLatestFromGithub "plougher" "squashfs-tools" "squashfs-tools|CVE")
 VERSION=${info#* }
 
-tar xf $PRGNAM-$VERSION.tar.?z*
-cd $PRGNAM-$VERSION
+# Path standar GoboLinux
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+DEST="$TMP/package-$PRGNAM"
+WORK_AREA="$MODULEPATH/work_area/$PRGNAM"
 
-cd $PRGNAM
+# Ekstraksi source
+# Squashfs-tools sering kali menggunakan ekstrak ganda atau folder bersarang
+tar xf squashfs-tools-$VERSION.tar.?z*
+cd squashfs-tools-$VERSION
 
+# Masuk ke direktori source utama
+cd squashfs-tools
+
+# Kompilasi dengan dukungan kompresi lengkap (Zstd sebagai default sesuai gaya Porteus)
+# GoboLinux menggunakan GCCFLAGS yang sudah didefinisikan di setflags.sh
 CFLAGS="$GCCFLAGS" \
 make -j${NUMBERTHREADS} \
 	GZIP_SUPPORT="1" \
@@ -32,12 +44,30 @@ make -j${NUMBERTHREADS} \
 	ZSTD_SUPPORT="1" \
 	COMP_DEFAULT="zstd"
 
-make install INSTALL_DIR=$PKG/usr/bin
+# Instalasi ke folder temporary DEST
+# Kita arahkan binari ke folder bin di dalam struktur Programs
+mkdir -p "$DEST$PKG_DIR/bin"
+make install INSTALL_DIR="$DEST$PKG_DIR/bin"
 
-find $PKG -type f -name "*.la" -exec rm -f {} \;
+# --- TAHAP INTEGRASI GOBO ---
 
-mkdir -p $PKG/install
-cat $CWD/slack-desc > $PKG/install/slack-desc
+# Hapus file .la jika ada (biasanya tidak ada di squashfs-tools, tapi untuk jaga-jaga)
+find "$DEST" -type f -name "*.la" -delete
 
-cd $PKG
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/$PRGNAM-$VERSION-$ARCH-1_porteux.txz
+# Pastikan folder target di work_area bersih
+rm -rf "$WORK_AREA"
+mkdir -p "$WORK_AREA"
+
+# Pindahkan hasil build ke work_area modul
+# Struktur: $WORK_AREA/Programs/Squashfs-Tools/$VERSION/bin/mksquashfs, dll.
+cp -a "$DEST"/* "$WORK_AREA/"
+
+echo ""
+echo "========================================================"
+echo "Selesai: $PRGNAM versi $VERSION"
+echo "Lokasi: $WORK_AREA"
+echo "========================================================"
+echo ""
+
+# Bersihkan temporary build folder
+rm -rf "$TMP"
