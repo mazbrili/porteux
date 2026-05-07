@@ -1,54 +1,85 @@
 #!/bin/bash
 
+# Load helpers
 source "$BUILDERUTILSPATH/latestfromgithub.sh"
+source "$BUILDERUTILSPATH/gobo_splitter.sh"
 
-PRGNAM=rpm
-
+PRGNAM=RPM
 CWD=$(dirname "$0")
-TMP=$MODULEPATH/$PRGNAM
-PKG=$TMP/package-$PRGNAM
+TMP="$MODULEPATH/$PRGNAM"
+DEST="$TMP/package-$PRGNAM"
 
 set -e
 
-[ -e $TMP ] && rm -rf $TMP
-mkdir -p $TMP $PKG
-cd $TMP
+[ -e "$TMP" ] && rm -rf "$TMP"
+mkdir -p "$TMP"
+cd "$TMP"
 
-VERSION=$(GetLatestVersionTagFromGithub "rpm-software-management" ${PRGNAM})
-VERSION=$(echo $VERSION | cut -d "-" -f2)
+# 1. FETCH VERSION & SOURCE
+# Menggunakan fungsi helper untuk mendapatkan tag terbaru
+VERSION_TAG=$(GetLatestVersionTagFromGithub "rpm-software-management" "rpm")
+# Membersihkan string versi (misal rpm-4.19.1.1-release -> 4.19.1.1)
+VERSION=$(echo $VERSION_TAG | cut -d "-" -f2)
 
-wget https://github.com/rpm-software-management/${PRGNAM}/releases/download/${PRGNAM}-${VERSION}-release/${PRGNAM}-${VERSION}.tar.bz2
+wget "https://github.com/rpm-software-management/rpm/releases/download/${PRGNAM,,}-${VERSION}-release/${PRGNAM,,}-${VERSION}.tar.bz2"
 
-tar xf ${PRGNAM}*.tar.?z*
-cd ${PRGNAM}*/
+tar xf ${PRGNAM,,}*.tar.?z*
+cd ${PRGNAM,,}*/
 
+# 2. PATH DEFINITIONS
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+
+# 3. PRE-CONFIGURE (Disable Docs & Unnecessary Tools)
+# Mematikan pencarian scdoc dan pembangunan dokumentasi agar build lebih ringan
 sed -i "s|find_program(SCDOC|#find_program(SCDOC|g" CMakeLists.txt
 sed -i "s|mark_as_advanced(SCDOC)|#mark_as_advanced(SCDOC)|g" CMakeLists.txt
-
 sed -i "s|find_program(SCD2HTML|#find_program(SCD2HTML|g" CMakeLists.txt
 sed -i "s|mark_as_advanced(SCD2HTML|#mark_as_advanced(SCD2HTML|g" CMakeLists.txt
-
 sed -i "s|add_subdirectory(docs)|#add_subdirectory(docs)|g" CMakeLists.txt
 sed -i "s|install(FILES CONTRIBUTING.md|#install(FILES CONTRIBUTING.md|g" CMakeLists.txt
 
+# 4. CONFIGURE (CMake)
+# Mengarahkan sysconfdir dan localstatedir ke hirarki /System
 cmake -B build -S . \
 	-G Ninja \
 	-DCMAKE_C_FLAGS="$GCCFLAGS -ffat-lto-objects" \
 	-DCMAKE_CXX_FLAGS="$GCCFLAGS -fvisibility-inlines-hidden" \
-	-DCMAKE_INSTALL_PREFIX=/usr \
-	-DCMAKE_INSTALL_LIBDIR=lib${SYSTEMBITS} \
+	-DCMAKE_INSTALL_PREFIX="$PKG_DIR" \
+	-DCMAKE_INSTALL_LIBDIR="Lib" \
+	-DCMAKE_INSTALL_BINDIR="bin" \
+	-DCMAKE_INSTALL_INCLUDEDIR="include" \
+	-DCMAKE_INSTALL_DATADIR="Shared" \
+	-DCMAKE_INSTALL_SYSCONFDIR="/System/Settings" \
+	-DCMAKE_INSTALL_LOCALSTATEDIR="/System/Variable" \
 	-DWITH_AUDIT=OFF \
 	-DWITH_SELINUX=OFF \
 	-DWITH_SEQUOIA=OFF \
 	-DENABLE_TESTSUITE=OFF
 
-DESTDIR="$PKG" ninja -C build install -j${NUMBERTHREADS}
+# 5. BUILD & INSTALL
+DESTDIR="$DEST" ninja -C build install -j${NUMBERTHREADS}
 
-rm -fr $PKG/etc
-rm -fr $PKG/usr/share/doc
+# 6. GOBOLINUX ADJUSTMENTS
 
-mkdir -p $PKG/install
-cat $CWD/slack-desc > $PKG/install/slack-desc
+# Membersihkan file yang tidak diperlukan di modul inti
+rm -rf "$DEST$PKG_DIR/Shared/doc"
+rm -rf "$DEST/System/Settings" # Biasanya berisi konfigurasi default yang bisa di-generate
 
-cd $PKG
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/$PRGNAM-$VERSION-$ARCH-1_porteux.txz
+# RPM sangat bergantung pada direktori database
+mkdir -p "$DEST/System/Variable/lib/rpm"
+
+# Pastikan tidak ada file .la
+find "$DEST" -type f -name "*.la" -delete
+
+# 7. CALL GENERIC SPLITTER
+# RPM menghasilkan librpm.so dan banyak header pengembangan.
+# Splitter akan memindahkan header dan file .pc ke 05-devel.
+GoboSplitter "$PRGNAM" "$VERSION" "$DEST"
+
+# 8. CLEANUP
+rm -rf "$TMP"
+
+echo "========================================================"
+echo "Build $PRGNAM-$VERSION selesai."
+echo "Database RPM diarahkan ke /System/Variable/lib/rpm"
+echo "========================================================"
