@@ -10,31 +10,33 @@ set -e
 mkdir -p "$TMP"
 cd "$TMP"
 
-# Mengambil versi terbaru dari GNU FTP
+# 1. DOWNLOAD & UNPACK
 VERSION=$(curl -s https://ftp.gnu.org/gnu/glibc/ | grep "glibc-[0-9]" | grep ".tar.xz" | grep -Ev "sig" | cut -d "=" -f 5 | cut -d "\"" -f 2 | sort -Vr | head -1 | cut -d "-" -f 2 | rev | cut -d "." -f 3- | rev)
 wget "https://ftp.gnu.org/gnu/glibc/glibc-${VERSION}.tar.xz"
-
 tar xf glibc-$VERSION.tar.xz
 cd glibc-$VERSION
 
-# Persiapan Path Gobo
+# 2. PATH DEFINITIONS
 PKG_DIR="/Programs/$PRGNAM/$VERSION"
 DEST="$TMP/package-$PRGNAM"
-WORK_AREA="$MODULEPATH/work_area/$PRGNAM"
+# Target work_area yang berbeda
+WORK_CORE="$MODULEPATH/work_area/001-core"
+WORK_DEVEL="$MODULEPATH/work_area/05-devel"
 
-# Terapkan Patch Porteux
+# 3. PATCHING
 cp -f "$CWD/SUPPORTED" localedata
 patch -p1 < "$CWD/glibc.locale.no-archive.patch"
 patch -p1 < "$CWD/glibc-2.32.en_US.no.am.pm.date.format.patch"
 [[ "$ARCHITECTURELEVEL" == "x86-64-v3" ]] || [[ "$ARCHITECTURELEVEL" == "x86-64-v4" ]] && patch -p0 < "$CWD/improve-performance-avx2.patch"
 
+# 4. BUILD-TIME HEADER BRIDGE (Link ke Porteux Dev Headers)
+mkdir -p "$TMP/shadow-root/System/Index"
+ln -sf /usr/include "$TMP/shadow-root/System/Index/include"
+KERNEL_HEADERS_PATH="$TMP/shadow-root/System/Index/include"
+
 mkdir build && cd build
 
-# Hapus flag yang bisa merusak build glibc
-LDFLAGS="${LDFLAGS/-Wl,--gc-sections/}"
-
-# Konfigurasi khusus GoboLinux
-# --with-headers diarahkan ke System Index karena headers kernel ada di sana
+# 5. CONFIGURE
 CFLAGS="${GCCFLAGS/-flto=auto/} -fPIC" \
 CXXFLAGS="${GCCFLAGS} -fvisibility-inlines-hidden -fPIC" \
 ../configure \
@@ -43,7 +45,7 @@ CXXFLAGS="${GCCFLAGS} -fvisibility-inlines-hidden -fPIC" \
 	--includedir="$PKG_DIR/include" \
 	--sysconfdir="/System/Settings" \
 	--enable-kernel=6.1 \
-	--with-headers="/System/Index/include" \
+	--with-headers="$KERNEL_HEADERS_PATH" \
 	--with-tls \
 	--with-__thread \
 	--without-cvs \
@@ -52,52 +54,57 @@ CXXFLAGS="${GCCFLAGS} -fvisibility-inlines-hidden -fPIC" \
 	--disable-werror \
 	--build="$ARCH-gobolinux-linux"
 
+# 6. MAKE & INSTALL
 make -j$NUMBERTHREADS
 make -j$NUMBERTHREADS install install_root="$DEST"
-
-# Instalasi locale minimal (hanya en_US sesuai skrip asli)
 make -j$NUMBERTHREADS localedata/install-locales install_root="$DEST"
 
-# --- TAHAP INTEGRASI LIBXCRYPT ---
-# Jalankan libxcrypt yang sudah kita modifikasi sebelumnya
+# 7. ADD LIBXCRYPT (Hibrida)
 pushd "$CWD"
 MODULEPATH="$MODULEPATH" PKG="$DEST" sh libxcrypt.build
 popd
 
-# --- PENYESUAIAN STRUKTUR GOBOLINUX ---
-
-# 1. Pindahkan binari ke folder bin di dalam Program
+# 8. GOBOLINUX ADJUSTMENTS
 mkdir -p "$DEST$PKG_DIR/bin"
-# Di Gobo, sbin biasanya digabung ke bin untuk kemudahan
-if [ -d "$DEST$PKG_DIR/sbin" ]; then
-    mv "$DEST$PKG_DIR/sbin"/* "$DEST$PKG_DIR/bin/"
-    rmdir "$DEST$PKG_DIR/sbin"
-fi
+[ -d "$DEST$PKG_DIR/sbin" ] && mv "$DEST$PKG_DIR/sbin"/* "$DEST$PKG_DIR/bin/" && rmdir "$DEST$PKG_DIR/sbin"
 
-# 2. Perbaikan Dynamic Linker
-# Sangat penting: Sistem membutuhkan ld-linux.so di path standar agar biner ELF bisa jalan.
-# Kita akan membuat symlink di dalam /Programs yang nanti akan di-link ke /lib64.
+# Linker setup untuk runtime core
 mkdir -p "$DEST/System/Index/Lib"
 cd "$DEST$PKG_DIR/Lib"
 for linker in ld-linux*; do
     [ -f "$linker" ] && ln -sf "$PKG_DIR/Lib/$linker" "$DEST/System/Index/Lib/$linker"
 done
 
-# 3. Pembersihan (Cleaning)
-rm -f "$DEST/System/Settings/ld.so.cache"
-rm -rf "$DEST$PKG_DIR/Shared/i18n/charmaps"
-rm -rf "$DEST$PKG_DIR/Shared/locale"
-# Sisakan hanya locale minimal
-find "$DEST$PKG_DIR/Shared/i18n/locales" -mindepth 1 -maxdepth 1 ! \( -name "en_US" -o -name "POSIX" \) -delete
+# --- TAHAP PEMISAHAN MODUL (THE SPLIT) ---
 
-# 4. Integrasi ke Work Area
-rm -rf "$WORK_AREA"
-mkdir -p "$WORK_AREA"
-cp -a "$DEST"/* "$WORK_AREA/"
+echo "Memisahkan file Core dan Devel..."
+
+# Buat struktur folder tujuan
+mkdir -p "$WORK_CORE/$PRGNAM" "$WORK_DEVEL/$PRGNAM"
+
+# A. Pindahkan Header dan Static Libs ke DEVEL
+# Folder include
+if [ -d "$DEST$PKG_DIR/include" ]; then
+    mkdir -p "$WORK_DEVEL$PKG_DIR"
+    mv "$DEST$PKG_DIR/include" "$WORK_DEVEL$PKG_DIR/"
+fi
+
+# File static (.a)
+mkdir -p "$WORK_DEVEL$PKG_DIR/Lib"
+find "$DEST$PKG_DIR/Lib" -name "*.a" -exec mv {} "$WORK_DEVEL$PKG_DIR/Lib/" \;
+
+# B. Masukkan sisa file (Runtime) ke CORE
+# Kita salin seluruh sisa $DEST (yang sudah bersih dari header/static)
+cp -a "$DEST"/* "$WORK_CORE/$PRGNAM/"
+
+# C. Pembersihan Tambahan untuk Core
+rm -rf "$WORK_CORE/$PRGNAM$PKG_DIR/Shared/i18n/charmaps"
+# Sisakan locale hanya di core (jika ingin hemat, pindahkan i18n ke modul terpisah)
 
 echo "========================================================"
-echo "Glibc $VERSION Berhasil Dibangun untuk GoboLinux"
-echo "Work Area: $WORK_AREA"
+echo "Pemisahan Selesai:"
+echo "Core (Runtime): $WORK_CORE/$PRGNAM"
+echo "Devel (Header): $WORK_DEVEL/$PRGNAM"
 echo "========================================================"
 
 rm -rf "$TMP"
