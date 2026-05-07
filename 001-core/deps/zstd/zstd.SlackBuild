@@ -1,26 +1,37 @@
 #!/bin/bash
 
+# Memuat utility pengunduh yang sudah disesuaikan
 source "$BUILDERUTILSPATH/latestfromgithub.sh"
 
-PRGNAM=zstd
-
+PRGNAM=Zstd
 CWD=$(dirname "$0")
-TMP=$MODULEPATH/$PRGNAM
-PKG=$TMP/package-$PRGNAM
+# TMP berada di dalam folder modul agar terisolasi
+TMP="$MODULEPATH/$PRGNAM"
 
 set -e
 
-[ -e $TMP ] && rm -rf $TMP
-mkdir -p $TMP $PKG
-cd $TMP
+# Bersihkan dan siapkan folder kerja
+[ -e "$TMP" ] && rm -rf "$TMP"
+mkdir -p "$TMP"
+cd "$TMP"
 
-info=$(DownloadLatestFromGithub "facebook" ${PRGNAM} "kernel")
+# Ambil informasi versi terbaru dari GitHub Facebook
+info=$(DownloadLatestFromGithub "facebook" "zstd" "kernel")
 VERSION=${info#* }
 
-tar xf $PRGNAM-$VERSION.tar.?z
-cd $PRGNAM-$VERSION
+# Definisi Path sesuai hierarki GoboLinux
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+DEST="$TMP/package-$PRGNAM"
+WORK_AREA="$MODULEPATH/work_area/$PRGNAM"
 
+# Ekstraksi source
+tar xf zstd-$VERSION.tar.?z
+cd zstd-$VERSION
+
+# Masuk ke folder build CMake
 cd build/cmake
+
+# Konfigurasi menggunakan Clang & Ninja sesuai skrip asli Porteux
 CC=clang \
 CXX=clang++ \
 LDFLAGS="$LLDFLAGS" \
@@ -28,8 +39,11 @@ cmake -B build -S . \
 	-G Ninja \
 	-DCMAKE_C_FLAGS="$CLANGFLAGS" \
 	-DCMAKE_CXX_FLAGS="$CLANGFLAGS -fvisibility-inlines-hidden" \
-	-DCMAKE_INSTALL_PREFIX=/usr \
-	-DCMAKE_INSTALL_LIBDIR=lib${SYSTEMBITS} \
+	-DCMAKE_INSTALL_PREFIX="$PKG_DIR" \
+	-DCMAKE_INSTALL_LIBDIR="Lib" \
+	-DCMAKE_INSTALL_BINDIR="bin" \
+	-DCMAKE_INSTALL_INCLUDEDIR="include" \
+	-DCMAKE_INSTALL_DATAROOTDIR="Shared" \
 	-DBUILD_SHARED_LIBS=ON \
 	-DZSTD_BUILD_STATIC=OFF \
 	-DZSTD_PROGRAMS_LINK_SHARED=ON \
@@ -37,12 +51,28 @@ cmake -B build -S . \
 	-DZSTD_LZMA_SUPPORT=ON \
 	-DZSTD_ZLIB_SUPPORT=ON
 
-DESTDIR="$PKG" ninja -C build install -j${NUMBERTHREADS}
+# Proses kompilasi dan instalasi sementara ke DESTDIR
+DESTDIR="$DEST" ninja -C build install
 
-find $PKG -type f -name "*.la" -exec rm -f {} \;
+# --- TAHAP INTEGRASI GOBO ---
 
-mkdir -p $PKG/install
-cat $CWD/slack-desc > $PKG/install/slack-desc
+# Hapus file .la (libtool) yang tidak diperlukan
+find "$DEST" -type f -name "*.la" -delete
 
-cd $PKG
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/$PRGNAM-$VERSION-$ARCH-1_porteux.txz
+# Pastikan work_area bersih sebelum disalin
+rm -rf "$WORK_AREA"
+mkdir -p "$WORK_AREA"
+
+# Salin hasil instalasi ke work_area modul
+# Struktur yang dihasilkan: $WORK_AREA/Programs/Zstd/$VERSION/...
+cp -a "$DEST"/* "$WORK_AREA/"
+
+echo ""
+echo "========================================================"
+echo "Selesai: $PRGNAM versi $VERSION"
+echo "Lokasi: $WORK_AREA"
+echo "========================================================"
+echo ""
+
+# Bersihkan sisa kompilasi untuk menghemat ruang
+rm -rf "$TMP"
