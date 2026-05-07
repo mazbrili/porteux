@@ -1,65 +1,87 @@
 #!/bin/bash
 
+# Load helpers
 source "$BUILDERUTILSPATH/latestfromgithub.sh"
+source "$BUILDERUTILSPATH/gobo_splitter.sh"
 
 PRGNAM=7zip
-
 CWD=$(dirname "$0")
-TMP=$MODULEPATH/$PRGNAM
-PKG=$TMP/package-$PRGNAM
+TMP="$MODULEPATH/$PRGNAM"
+DEST="$TMP/package-$PRGNAM"
 
 set -e
 
-[ -e $TMP ] && rm -rf $TMP
-mkdir -p $TMP $PKG
-cd $TMP
+[ -e "$TMP" ] && rm -rf "$TMP"
+mkdir -p "$TMP"
+cd "$TMP"
 
+# --- 1. BUILD UASM (Build-time Dependency) ---
+# Kita bangun UASM hanya sebagai alat bantu kompilasi, tidak akan masuk ke modul final.
 uasmVersion=2.57
-wget https://github.com/Terraspace/UASM/archive/refs/tags/v${uasmVersion}r.tar.gz -O UASM-${uasmVersion}r.tar.gz
+wget "https://github.com/Terraspace/UASM/archive/refs/tags/v${uasmVersion}r.tar.gz" -O "UASM-${uasmVersion}r.tar.gz"
+tar xf "UASM-${uasmVersion}r.tar.gz"
+cd "UASM-${uasmVersion}r"
 
-tar xf UASM-${uasmVersion}r.tar.?z*
-cd UASM-${uasmVersion}r
+make -j${NUMBERTHREADS} \
+    CC="gcc $GCCFLAGS -std=c99 -fcommon -Wno-implicit-function-declaration -Wno-incompatible-pointer-types -Wno-int-conversion -Wno-discarded-qualifiers -Wno-lto-type-mismatch -Wno-compare-distinct-pointer-types -Wno-pointer-to-int-cast" \
+    -f Makefile-Linux-GCC-64.mak
 
-make -j${NUMBERTHREADS} CC="gcc $GCCFLAGS -std=c99 -fcommon -Wno-implicit-function-declaration -Wno-incompatible-pointer-types -Wno-int-conversion -Wno-discarded-qualifiers -Wno-lto-type-mismatch -Wno-compare-distinct-pointer-types -Wno-pointer-to-int-cast" -f Makefile-Linux-GCC-64.mak
-
-chmod +x $PWD/GccUnixR/uasm
-PATH=$PATH:$PWD/GccUnixR
+# Masukkan uasm ke PATH agar bisa ditemukan oleh build system 7zip
+chmod +x "$PWD/GccUnixR/uasm"
+export PATH="$PATH:$PWD/GccUnixR"
 cd ..
 
-info=$(DownloadLatestFromGithub "ip7z" ${PRGNAM})
+# --- 2. FETCH 7ZIP SOURCE ---
+info=$(DownloadLatestFromGithub "ip7z" "7zip")
 VERSION=${info#* }
 
 tar xf $PRGNAM-$VERSION.tar.?z*
 cd $PRGNAM-$VERSION
 
+# --- 3. PATH DEFINITIONS ---
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+
+# --- 4. PRE-CONFIGURE ---
+# Menggunakan template Meson yang Anda miliki
 cp "$CWD/meson.build.template" meson.build
 meson rewrite kwargs set project / version ${VERSION}
 
+# --- 5. CONFIGURE & BUILD ---
 mkdir build && cd build
 CFLAGS="$GCCFLAGS -pthread" \
 CXXFLAGS="$GCCFLAGS -fvisibility-inlines-hidden -pthread" \
 meson setup \
-	--prefix=/usr \
-	--libdir=/usr/lib${SYSTEMBITS} \
-	--libexecdir=/usr/libexec \
-	--bindir=/usr/bin \
-	--sbindir=/usr/sbin \
-	--includedir=/usr/include \
-	--datadir=/usr/share \
-	--sysconfdir=/etc \
-	--localstatedir=/var \
+	--prefix="$PKG_DIR" \
+	--libdir="Lib" \
+	--libexecdir="Libexec" \
+	--bindir="bin" \
+	--sbindir="bin" \
+	--includedir="include" \
+	--datadir="Shared" \
+	--sysconfdir="/System/Settings" \
+	--localstatedir="/System/Variable" \
 	--buildtype=release
 
-DESTDIR=$PKG ninja -j${NUMBERTHREADS} install
+DESTDIR="$DEST" ninja -j${NUMBERTHREADS} install
 
-find $PKG -type f -name "*.la" -exec rm -f {} \;
-rm -fr $PKG/usr/share/doc
+# --- 6. GOBOLINUX ADJUSTMENTS ---
 
-cd $PKG/usr/bin
-cp -s 7zz 7z
+# Bersihkan file dokumentasi dan libtool
+find "$DEST" -type f -name "*.la" -delete
+rm -rf "$DEST$PKG_DIR/Shared/doc"
 
-mkdir -p $PKG/install
-cat $CWD/slack-desc > $PKG/install/slack-desc
+# Tambahkan symlink 7z ke 7zz sesuai standar CLI
+cd "$DEST$PKG_DIR/bin"
+ln -sf 7zz 7z
 
-cd $PKG
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/$PRGNAM-$VERSION-$ARCH-1_porteux.txz
+# --- 7. CALL GENERIC SPLITTER ---
+# 7zip biasanya hanya berupa binari, tapi jika ada header/lib, splitter akan menanganinya
+GoboSplitter "$PRGNAM" "$VERSION" "$DEST"
+
+# --- 8. CLEANUP ---
+rm -rf "$TMP"
+
+echo "========================================================"
+echo "Build $PRGNAM-$VERSION selesai."
+echo "UASM digunakan sebagai build-tool dan telah dibersihkan."
+echo "========================================================"
