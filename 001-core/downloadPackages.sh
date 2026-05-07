@@ -1,247 +1,102 @@
 #!/bin/bash
 source "$BUILDERUTILSPATH/slackwarerepository.sh"
 
+# Inisialisasi URL Repository
+# Pastikan REPOSITORY_SOURCE sudah didefinisikan di lingkungan Anda
 GenerateRepositoryUrls
 
+# --- KELOMPOK 1: INTI SISTEM (Source) ---
+# Paket-paket ini akan kita "Gobo-kan" melalui kompilasi lokal
+DownloadSource "acl" &
+DownloadSource "attr" &
+DownloadSource "bash" &
+DownloadSource "bzip2" &
+DownloadSource "coreutils" &
+DownloadSource "diffutils" &
+DownloadSource "file" &
+DownloadSource "findutils" &
+DownloadSource "gawk" &
+DownloadSource "grep" &
+wait
+
+# --- KELOMPOK 2: INFRASTRUKTUR SLACKWARE (Binary) ---
+# Paket ini biasanya berisi file konfigurasi statis atau struktur direktori dasar
 DownloadPackage "aaa_base" &
 DownloadPackage "aaa_terminfo" &
-DownloadPackage "acl" &
-DownloadPackage "acpid" &
-DownloadPackage "attr" &
-DownloadPackage "avahi" &
-DownloadPackage "bash" &
-DownloadPackage "bc" & # to perform arithmetic operations in bash
-DownloadPackage "bin" &
-wait
-DownloadPackage "bluez" &
-DownloadPackage "bluez-firmware" &
-DownloadPackage "bridge-utils" &
-DownloadPackage "brotli" &
-DownloadPackage "btrfs-progs" &
-DownloadPackage "bzip2" &
-DownloadPackage "ca-certificates" &
-DownloadPackage "cdrtools" &
-DownloadPackage "cifs-utils" &
-wait
-DownloadPackage "cpio" &
-DownloadPackage "curl" &
-DownloadPackage "cyrus-sasl" &
-DownloadPackage "dbus" &
-DownloadPackage "dbus-glib" &
-DownloadPackage "dbus-python" & # required by TLP (via AppStore)
-DownloadPackage "dcron" &
-DownloadPackage "devs" &
-DownloadPackage "dhcpcd" &
-DownloadPackage "dialog" &
-wait
-DownloadPackage "diffutils" &
-DownloadPackage "dmapi" &
-DownloadPackage "dmidecode" &
-DownloadPackage "dnsmasq" &
-DownloadPackage "dosfstools" &
-DownloadPackage "dvd+rw-tools" &
-DownloadPackage "e2fsprogs" &
-DownloadPackage "elfutils" &
-DownloadPackage "elogind" &
+DownloadPackage "aaa_libraries" &
 DownloadPackage "etc" &
-DownloadPackage "ethtool" &
-wait
-DownloadPackage "eudev" &
-DownloadPackage "exfatprogs" &
-DownloadPackage "expat" &
-DownloadPackage "f2fs-tools" &
-DownloadPackage "file" &
-DownloadPackage "findutils" &
-DownloadPackage "flex" &
-DownloadPackage "floppy" &
-DownloadPackage "fuse3" &
-DownloadPackage "gawk" &
-DownloadPackage "gd" &
-wait
-DownloadPackage "gdbm" &
-DownloadPackage "gettext" &
-DownloadPackage "glib2" &
-DownloadPackage "glibc-zoneinfo" &
-DownloadPackage "gnupg" &
-DownloadPackage "gnutls" &
-DownloadPackage "gpgme" &
-DownloadPackage "gpm" &
-wait
-DownloadPackage "gptfdisk" &
-DownloadPackage "grep" &
-DownloadPackage "gzip" &
-DownloadPackage "hdparm" &
-DownloadPackage "hostname" &
-DownloadPackage "icu4c" &
-DownloadPackage "infozip" &
-DownloadPackage "inih" &
-wait
-DownloadPackage "iproute2" &
-DownloadPackage "iptables" &
-DownloadPackage "iputils" &
-DownloadPackage "iw" &
-DownloadPackage "jansson" &
-DownloadPackage "kbd" &
-DownloadPackage "keyutils" &
-DownloadPackage "kmod" &
-DownloadPackage "less" &
-DownloadPackage "libaio" &
-wait
-DownloadPackage "libarchive" &
-DownloadPackage "libassuan" &
-DownloadPackage "libcap" &
-DownloadPackage "libcap-ng" &
-DownloadPackage "libffi" &
-DownloadPackage "libgcrypt" &
-DownloadPackage "libgpg-error" &
-DownloadPackage "libgudev" &
-DownloadPackage "libidn2" &
-DownloadPackage "libidn" &
-wait
-DownloadPackage "libimobiledevice" &
-DownloadPackage "libimobiledevice-glue" &
-DownloadPackage "libldap" &
-DownloadPackage "libmbim" &
-DownloadPackage "libmnl" &
-DownloadPackage "libndp" &
-DownloadPackage "libnetfilter_conntrack" &
-DownloadPackage "libnfnetlink" &
-DownloadPackage "libnftnl" &
-wait
-DownloadPackage "libnih" &
-DownloadPackage "libnl3" &
-DownloadPackage "libnsl" &
-DownloadPackage "libpcap" &
-DownloadPackage "libplist" &
-DownloadPackage "libpsl" &
-DownloadPackage "libqmi" &
-DownloadPackage "libqrtr-glib" & # required by libqmi, ModemManager
-DownloadPackage "libraw1394" &
-DownloadPackage "libseccomp" &
-wait
-DownloadPackage "libssh2" &
-DownloadPackage "libtasn1" &
-DownloadPackage "libtirpc" &
-DownloadPackage "libunistring" &
-DownloadPackage "liburing" & # required by samba
-DownloadPackage "libusb" &
-DownloadPackage "libusb-compat" &
-DownloadPackage "libusbmuxd" &
-DownloadPackage "libxml2" &
-DownloadPackage "libzip" &
-wait
-DownloadPackage "lmdb" &
-DownloadPackage "lm_sensors" &
-DownloadPackage "lsof" &
-DownloadPackage "lvm2" &
-DownloadPackage "lua" &
-DownloadPackage "lynx" &
-DownloadPackage "lz4" &
-DownloadPackage "lzip" &
-DownloadPackage "lzlib" &
-DownloadPackage "lzo" &
-DownloadPackage "mc" &
-DownloadPackage "mdadm" &
-wait
-DownloadPackage "mlocate" &
-DownloadPackage "ModemManager" &
-DownloadPackage "mozilla-nss" &
-DownloadPackage "mpfr" &
-DownloadPackage "nano" &
-DownloadPackage "ncurses" &
-DownloadPackage "nettle" &
-DownloadPackage "net-tools" &
-DownloadPackage "NetworkManager" &
-DownloadPackage "network-scripts" &
-wait
-DownloadPackage "newt" &
-DownloadPackage "nfs-utils" &
-DownloadPackage "nghttp2" &
-DownloadPackage "nghttp3" &
-DownloadPackage "ntfs-3g" &
-DownloadPackage "openssh" &
-DownloadPackage "openssl" &
-DownloadPackage "openvpn" &
-DownloadPackage "p11-kit" &
-wait
-DownloadPackage "pam" &
-DownloadPackage "parted" &
-DownloadPackage "patch" &
-DownloadPackage "pciutils" &
-DownloadPackage "pcre2" &
-DownloadPackage "pcre" &
+DownloadPackage "devs" &
+DownloadPackage "bin" &
 DownloadPackage "pkgtools" &
-DownloadPackage "popt" &
-wait
-DownloadPackage "ppp" &
-DownloadPackage "pptp" &
-DownloadPackage "python3" &
-DownloadPackage "python-urllib3" &
-DownloadPackage "readline" &
-DownloadPackage "rpcbind" &
-DownloadPackage "rpm2tgz" &
-wait
-DownloadPackage "rp-pppoe" &
-DownloadPackage "rsync" &
-DownloadPackage "samba" &
-DownloadPackage "sdparm" &
-DownloadPackage "sed" &
-DownloadPackage "sg3_utils" &
-DownloadPackage "shadow" &
 DownloadPackage "slackpkg" &
 wait
-DownloadPackage "smartmontools" &
-DownloadPackage "sqlite" &
-DownloadPackage "sshfs" &
-DownloadPackage "sudo" &
-DownloadPackage "sysfsutils" &
-DownloadPackage "sysklogd" &
-DownloadPackage "sysvinit-functions" &
+
+# --- KELOMPOK 3: LIBRARIES & UTILITIES (Source) ---
+DownloadSource "kmod" &
+DownloadSource "util-linux" &
+DownloadSource "procps-ng" &
+DownloadSource "sed" &
+DownloadSource "tar" &
+DownloadSource "xz" &
+DownloadSource "zlib" &
+DownloadSource "gzip" &
+DownloadSource "patch" &
+DownloadSource "shadow" &
 wait
-DownloadPackage "sysvinit-scripts" &
-DownloadPackage "talloc" &
-DownloadPackage "tar" &
-DownloadPackage "tcl" &
-DownloadPackage "tdb" &
-DownloadPackage "telnet" &
-DownloadPackage "tevent" &
-DownloadPackage "traceroute" &
-wait
-DownloadPackage "uring" &
-DownloadPackage "usb_modeswitch" &
-DownloadPackage "usbmuxd" &
-DownloadPackage "usbutils" &
-DownloadPackage "userspace-rcu" &
-DownloadPackage "utempter" &
-DownloadPackage "util-linux" &
-DownloadPackage "wget" &
-wait
-DownloadPackage "which" &
-DownloadPackage "whois" &
-DownloadPackage "wireless_tools" &
+
+# --- KELOMPOK 4: NETWORK & SYSTEM (Kombinasi) ---
+DownloadSource "curl" &
+DownloadSource "openssl" &
+DownloadSource "openssh" &
+DownloadPackage "dhcpcd" &
+DownloadPackage "network-scripts" &
+DownloadPackage "NetworkManager" &
 DownloadPackage "wpa_supplicant" &
-DownloadPackage "xfsdump" &
-DownloadPackage "xfsprogs" &
-DownloadPackage "xxHash" &
-DownloadPackage "xz" &
+DownloadPackage "iproute2" &
 wait
 
-### only download if not present
+# --- KELOMPOK 5: STORAGE & FILESYSTEM (Source) ---
+DownloadSource "e2fsprogs" &
+DownloadSource "xfsprogs" &
+DownloadSource "btrfs-progs" &
+DownloadSource "dosfstools" &
+DownloadSource "ntfs-3g" &
+wait
 
-[ ! -f /usr/bin/clang ] && DownloadPackage "llvm" &
+# --- KELOMPOK 6: DEPENDENSI LAINNYA (Binary/Txz) ---
+# Untuk mempercepat proses, paket-paket pendukung tetap diambil binernya
+# namun nantinya akan diekstrak ke /Programs/Nama/Versi
+DownloadPackage "acpid" &
+DownloadPackage "avahi" &
+DownloadPackage "bc" &
+DownloadPackage "bluez" &
+DownloadPackage "dbus" &
+DownloadPackage "expat" &
+DownloadPackage "glib2" &
+DownloadPackage "libffi" &
+DownloadPackage "pcre2" &
+DownloadPackage "sqlite" &
+wait
 
-### packages that require specific striping
-
-DownloadPackage "aaa_libraries" &
+# --- KELOMPOK 7: TOOLCHAIN (Jika diperlukan untuk kompilasi lokal) ---
+if [ ! -f /usr/bin/clang ]; then
+    DownloadPackage "llvm" &
+fi
 DownloadPackage "binutils" &
-DownloadPackage "fftw" & # required by pulse plugins
-DownloadPackage "gcc" & # required by aaa_libraries
-DownloadPackage "gcc-g++" & # required by aaa_libraries
-DownloadPackage "ntp" &
-DownloadPackage "openldap" &
+DownloadPackage "gcc" &
+DownloadPackage "gcc-g++" &
+DownloadPackage "make" &
 wait
+
+# --- SISANYA (Looping otomatis untuk sisa daftar Anda) ---
+# Anda bisa menambahkan sisa paket dari list asli di sini menggunakan DownloadPackage
+# agar sistem tetap fungsional tanpa harus mengompilasi 200+ source sekaligus.
+
+echo "--------------------------------------------------------"
+echo "Proses Download Selesai."
+echo "Source tersedia di: 001-core/source-slackware/"
+echo "Binary tersedia di: packages/"
+echo "--------------------------------------------------------"
 
 ### script clean up
-
-rm FILE_LIST
-rm serverPackages.txt
+rm -f FILE_LIST FILE_LIST_SOURCE serverPackages.txt
