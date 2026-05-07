@@ -1,42 +1,71 @@
 #!/bin/bash
 
+# Memuat utility pengunduh terbaru
 source "$BUILDERUTILSPATH/latestfromgithub.sh"
 
-PRGNAM=zlib-ng
-
+PRGNAM=ZLib-NG
 CWD=$(dirname "$0")
-TMP=$MODULEPATH/$PRGNAM
-PKG=$TMP/package-$PRGNAM
+# Folder temporary build
+TMP="$MODULEPATH/$PRGNAM"
 
 set -e
 
-[ -e $TMP ] && rm -rf $TMP
-mkdir -p $TMP $PKG
-cd $TMP
+# Bersihkan folder kerja
+[ -e "$TMP" ] && rm -rf "$TMP"
+mkdir -p "$TMP"
+cd "$TMP"
 
-info=$(DownloadLatestFromGithub "${PRGNAM}" ${PRGNAM})
+# Ambil versi terbaru dari GitHub
+info=$(DownloadLatestFromGithub "zlib-ng" "zlib-ng")
 VERSION=${info#* }
 
-tar xf $PRGNAM-$VERSION.tar.?z
-cd $PRGNAM-$VERSION
+# Path standar GoboLinux
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+DEST="$TMP/package-$PRGNAM"
+WORK_AREA="$MODULEPATH/work_area/$PRGNAM"
 
+# Ekstraksi source
+tar xf zlib-ng-$VERSION.tar.?z
+cd zlib-ng-$VERSION
+
+# Konfigurasi CMake untuk GoboLinux
+# CMAKE_INSTALL_LIBDIR disetel ke 'Lib' agar sesuai dengan hierarki Gobo
 CC=clang \
 LDFLAGS="$LLDFLAGS" \
 cmake -B build -S . \
 	-G Ninja \
 	-DCMAKE_C_FLAGS="$CLANGFLAGS" \
-	-DCMAKE_INSTALL_PREFIX=/usr \
-	-DCMAKE_INSTALL_LIBDIR=lib${SYSTEMBITS} \
+	-DCMAKE_INSTALL_PREFIX="$PKG_DIR" \
+	-DCMAKE_INSTALL_LIBDIR="Lib" \
+	-DCMAKE_INSTALL_BINDIR="bin" \
+	-DCMAKE_INSTALL_INCLUDEDIR="include" \
+	-DCMAKE_INSTALL_DATAROOTDIR="Shared" \
 	-DZLIB_COMPAT=ON \
 	-DWITH_GTEST=OFF \
 	-DBUILD_TESTING=OFF
 
-DESTDIR="$PKG" ninja -C build install -j${NUMBERTHREADS}
+# Kompilasi dan instalasi ke DESTDIR temporary
+DESTDIR="$DEST" ninja -C build install
 
-find $PKG -type f -name "*.la" -exec rm -f {} \;
+# --- TAHAP INTEGRASI GOBO ---
 
-mkdir -p $PKG/install
-cat $CWD/slack-desc > $PKG/install/slack-desc
+# Hapus file .la jika ada
+find "$DEST" -type f -name "*.la" -delete
 
-cd $PKG
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/$PRGNAM-$VERSION-$ARCH-1_porteux.txz
+# Pastikan folder target di work_area bersih
+rm -rf "$WORK_AREA"
+mkdir -p "$WORK_AREA"
+
+# Pindahkan hasil build ke work_area modul
+# Struktur: $WORK_AREA/Programs/ZLib-NG/$VERSION/...
+cp -a "$DEST"/* "$WORK_AREA/"
+
+echo ""
+echo "========================================================"
+echo "Selesai: $PRGNAM versi $VERSION (ZLib-Compat Mode)"
+echo "Lokasi: $WORK_AREA"
+echo "========================================================"
+echo ""
+
+# Bersihkan temporary build folder
+rm -rf "$TMP"
