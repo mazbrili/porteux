@@ -1,45 +1,82 @@
 #!/bin/bash
 
 GenerateRepositoryUrls() {
-	# GoboLinux biasanya menggunakan direktori /Files/Compile/Recipes untuk daftar resep
-	# atau mengambil daftar dari Store.
-	rm -f $MODULEPATH/packages/RECIPE_LIST
-	rm -f $MODULEPATH/packages/serverPackages.txt
-	mkdir -p $MODULEPATH/packages > /dev/null 2>&1
-	cd $MODULEPATH/packages
+	# Folder penyimpanan paket dan source
+	local PKG_BASE="$MODULEPATH/packages"
+	rm -f $PKG_BASE/FILE_LIST
+	rm -f $PKG_BASE/serverPackages.txt
+	mkdir -p $PKG_BASE > /dev/null 2>&1
+	cd $PKG_BASE
 	
-	# Mengambil daftar program/resep yang tersedia di repository GoboLinux
-	# Gobo menggunakan struktur: Nama/Versi
-	wget $REPOSITORY/MANIFEST -O RECIPE_LIST -q > /dev/null 2>&1 || exit
+	# Ambil daftar file dari repository (Biner)
+	wget $REPOSITORY/FILE_LIST -O FILE_LIST -q > /dev/null 2>&1 || \
+	wget $REPOSITORY/FILELIST.TXT -O FILE_LIST -q > /dev/null 2>&1 || exit
+	
+	# Ambil daftar file dari repository Source (Opsional, jika REPOSITORY_SOURCE diset)
+	if [ ! -z "$REPOSITORY_SOURCE" ]; then
+		wget $REPOSITORY_SOURCE/FILE_LIST -O FILE_LIST_SOURCE -q > /dev/null 2>&1 || true
+	fi
 
-	# Membersihkan dan menyusun daftar paket (mengambil nama folder program)
-	# Asumsi format MANIFEST GoboLinux berisi path lengkap ke Recipe
-	grep "Recipe" RECIPE_LIST | cut -d' ' -f2 > serverPackages.txt
+	# Bersihkan daftar paket server untuk biner .txz
+	rm -f serverPackages.txt
+	while IFS= read -r line; do
+		if [[ $line == *txz ]]; then
+			# Ambil path setelah './'
+			echo "${line#*./}" >> serverPackages.txt
+		fi
+	done < FILE_LIST
 
-	# Sort daftar resep agar pencarian lebih cepat
-	sort -o serverPackages.txt{,}
+	# Sort agar pencarian lebih cepat
+	sort -u -o serverPackages.txt serverPackages.txt
 }
 
 DownloadPackage() {
+	local PRGNAM=$1
 	cd $MODULEPATH/packages
 
-	# Di GoboLinux, kita mencari berdasarkan Nama Program (Case Sensitive)
-	# Jika folder program sudah ada, lewati
-	if [ -d "/Programs/${1}" ]; then
-		echo "Program ${1} sudah terpasang di sistem."
+	# Jika paket biner sudah ada, jangan download lagi
+	if ls ${PRGNAM}-[0-9]*txz >/dev/null 2>&1; then
 		return
 	fi
 
-	# Mencari Recipe yang sesuai di serverPackages.txt
-	# Gobo menggunakan format Nama/Versi, jadi kita cari yang diawali dengan nama paket
-	packagePath=$(grep "^${1}/" serverPackages.txt | head -n 1)
+	# Cari URL paket biner
+	packageUrl=$(grep -E "/${PRGNAM}-[0-9]+" serverPackages.txt | head -n 1)
+	if [ ! -z "$packageUrl" ]; then
+		echo "Downloading Binary: $packageUrl..."
+		wget "$REPOSITORY/$packageUrl" -q || exit
+	fi
+}
+
+# --- FUNGSI BARU: DownloadSource ---
+DownloadSource() {
+	local PRGNAM=$1
+	local TARGET_DIR="$MODULEPATH/001-core/source-slackware/$PRGNAM"
 	
-	if [ ! -z "$packagePath" ]; then
-		echo "Downloading Recipe for: $packagePath..."
-		# GoboLinux menggunakan tool 'GetRecipe' atau mengunduh tarball resep
-		# Di sini kita simulasikan pengunduhan arsip resep (.tar.bz2)
-		wget "$REPOSITORY/$packagePath/Recipe_${1}.tar.bz2" -q > /dev/null 2>&1 || exit
+	# Jika folder source sudah ada dan tidak kosong, skip
+	if [ -d "$TARGET_DIR" ] && [ "$(ls -A $TARGET_DIR)" ]; then
+		return
+	fi
+
+	mkdir -p "$TARGET_DIR"
+
+	# Cari folder source di FILE_LIST (mencari direktori yang mengandung nama paket)
+	# Slackware source path biasanya: source/[kategori]/[paket]/
+	sourcePath=$(grep -E "source/.*/${PRGNAM}/$" $MODULEPATH/packages/FILE_LIST | awk '{print $NF}' | head -n 1)
+	
+	if [ -z "$sourcePath" ]; then
+		# Coba cari tanpa kategori spesifik
+		sourcePath=$(grep "/${PRGNAM}/$" $MODULEPATH/packages/FILE_LIST | grep "source/" | awk '{print $NF}' | head -n 1)
+	fi
+
+	if [ ! -z "$sourcePath" ]; then
+		echo "Fetching Source Folder: $sourcePath"
+		# Menggunakan wget rekursif untuk mengambil isi satu folder source
+		# -nd (no directories): agar file langsung masuk ke TARGET_DIR tanpa subfolder category
+		# -np (no parent): agar tidak naik ke folder di atasnya
+		wget -r -np -nd -l 1 -q --show-progress \
+			-P "$TARGET_DIR" \
+			"$REPOSITORY_SOURCE/${sourcePath#./}"
 	else
-		echo "Package ${1} tidak ditemukan di repository GoboLinux."
+		echo "Error: Source for $PRGNAM not found in FILE_LIST"
 	fi
 }
