@@ -2,46 +2,71 @@
 
 source "$BUILDERUTILSPATH/latestfromgithub.sh"
 
-PRGNAM=libxcrypt
-
+PRGNAM=LibXcrypt
 CWD=$(dirname "$0")
-TMP=$MODULEPATH/$PRGNAM
+# Folder temporary build agar tidak mengganggu sistem host
+TMP="$MODULEPATH/$PRGNAM"
 
 set -e
 
-[ -e $TMP ] && rm -rf $TMP
-mkdir -p $TMP
-cd $TMP
+[ -e "$TMP" ] && rm -rf "$TMP"
+mkdir -p "$TMP"
+cd "$TMP"
 
-info=$(DownloadLatestFromGithub "besser82" ${PRGNAM})
+# Ambil versi terbaru dari GitHub besser82
+info=$(DownloadLatestFromGithub "besser82" "libxcrypt")
 VERSION=${info#* }
 
-tar xvf $PRGNAM-$VERSION.tar.?z
-cd $PRGNAM-$VERSION
+# Path standar GoboLinux 17
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+DEST="$TMP/package-$PRGNAM"
+WORK_AREA="$MODULEPATH/work_area/$PRGNAM"
 
+tar xf libxcrypt-$VERSION.tar.?z
+cd libxcrypt-$VERSION
+
+# Konfigurasi dengan standar GoboLinux
+# Kita matikan obsolete-api karena GoboLinux 17 fokus pada standar modern
 CFLAGS="$GCCFLAGS -Wno-error=discarded-qualifiers" \
 ./configure \
-	--prefix=/usr \
-	--libdir=/usr/lib${SYSTEMBITS} \
+	--prefix="$PKG_DIR" \
+	--libdir="$PKG_DIR/Lib" \
+	--includedir="$PKG_DIR/include" \
 	--disable-static \
 	--enable-hashes=strong,glibc \
 	--enable-obsolete-api=no \
 	--disable-failure-tokens \
-	--build=$ARCH-slackware-linux
+	--build="$ARCH-gobolinux-linux"
 
-make -j$NUMBERTHREADS install DESTDIR=$PKG
+make -j$NUMBERTHREADS install DESTDIR="$DEST"
 
-rm -f $PKG/{,usr/}lib${SYSTEMBITS}/libcrypt*.la
-rm -fr $PKG/usr/share/man
+# --- TAHAP INTEGRASI GOBO ---
 
-# Move libraries out of /usr:
-mkdir -p $PKG/lib${SYSTEMBITS}
-cd $PKG/usr/lib${SYSTEMBITS}
-rm libcrypt*.so
-mv libcrypt*so* ../../lib${SYSTEMBITS}
+# 1. Pembersihan file .la dan dokumentasi
+find "$DEST" -type f -name "*.la" -delete
+rm -rf "$DEST$PKG_DIR/Shared/man"
 
-# Add .so symlinks for libcrypt and libxcrypt:
-ln -sf ../../lib${SYSTEMBITS}/libcrypt.so.2 libcrypt.so
-ln -sf ../../lib${SYSTEMBITS}/libcrypt.so.2 libxcrypt.so
+# 2. Penanganan Library
+# Di GoboLinux, kita ingin library utama tetap berada di dalam folder Program,
+# namun kita perlu memastikan symlink internal benar.
+cd "$DEST$PKG_DIR/Lib"
 
-rm -fr $TMP
+# Pastikan symlink libcrypt.so dan libxcrypt.so menunjuk ke soname yang tepat di folder yang sama
+# Ini penting agar saat kompilasi paket lain (seperti Shadow atau PAM), mereka menemukan lib ini.
+ln -sf libcrypt.so.2 libcrypt.so
+ln -sf libcrypt.so.2 libxcrypt.so
+
+# 3. Integrasi ke Work Area
+rm -rf "$WORK_AREA"
+mkdir -p "$WORK_AREA"
+cp -a "$DEST"/* "$WORK_AREA/"
+
+echo ""
+echo "========================================================"
+echo "Selesai: $PRGNAM versi $VERSION"
+echo "Lokasi: $WORK_AREA"
+echo "========================================================"
+echo ""
+
+# Bersihkan sisa kompilasi
+rm -rf "$TMP"
