@@ -1,41 +1,68 @@
 #!/bin/bash
 
+# Load helpers
 source "$BUILDERUTILSPATH/latestfromgithub.sh"
+source "$BUILDERUTILSPATH/gobo_splitter.sh"
 
-PRGNAM=fastfetch
-
+PRGNAM=Fastfetch
 CWD=$(dirname "$0")
-TMP=$MODULEPATH/$PRGNAM
-PKG=$TMP/package-$PRGNAM
+TMP="$MODULEPATH/$PRGNAM"
+DEST="$TMP/package-$PRGNAM"
 
 set -e
 
-[ -e $TMP ] && rm -rf $TMP
-mkdir -p $TMP $PKG
-cd $TMP
+[ -e "$TMP" ] && rm -rf "$TMP"
+mkdir -p "$TMP"
+cd "$TMP"
 
-info=$(DownloadLatestFromGithub "fastfetch-cli" ${PRGNAM})
+# 1. FETCH VERSION & SOURCE
+info=$(DownloadLatestFromGithub "fastfetch-cli" "fastfetch")
 VERSION=${info#* }
 
-tar xf ${PRGNAM}-${VERSION}.tar.gz
-cd ${PRGNAM}-${VERSION}
+tar xf fastfetch-${VERSION}.tar.gz
+cd fastfetch-${VERSION}
 
+# 2. PATH DEFINITIONS
+PKG_DIR="/Programs/$PRGNAM/$VERSION"
+
+# 3. CONFIGURE (CMake)
+# Kita arahkan instalasi ke folder Program Gobo
 cmake -B build -S . \
 	-G Ninja \
 	-DCMAKE_C_FLAGS="$GCCFLAGS" \
 	-DCMAKE_CXX_FLAGS="$GCCFLAGS -fvisibility-inlines-hidden" \
+	-DCMAKE_INSTALL_PREFIX="$PKG_DIR" \
+	-DCMAKE_INSTALL_BINDIR="bin" \
+	-DCMAKE_INSTALL_SYSCONFDIR="/System/Settings" \
+	-DCMAKE_INSTALL_DATADIR="Shared" \
 	-DBUILD_FLASHFETCH=no \
 	-DENABLE_OPENCL=off
 
-DESTDIR="$PKG" ninja -C build install -j${NUMBERTHREADS}
+# 4. BUILD & INSTALL
+DESTDIR="$DEST" ninja -C build install -j${NUMBERTHREADS}
 
-echo "fastfetch --logo linux --color-title blue --color-keys blue -s Title:Separator:OS:Host:Kernel:Uptime:Packages:Shell:Display:DE:WM:WMTheme:Theme:Icons:Font:Cursor:Terminal:TerminalFont:CPU:GPU:Memory:Swap:LocalIp:Battery:PowerAdapter:Locale:Break:Colors \"\$@\"" > $PKG/usr/bin/neofetch
-chmod 755 $PKG/usr/bin/neofetch
+# 5. GOBOLINUX ADJUSTMENTS
 
-rm -fr $PKG/usr/share
+# Membuat wrapper/alias neofetch agar tetap bisa dipanggil
+# Perhatikan penggunaan path absolut Gobo di dalam script wrapper
+mkdir -p "$DEST$PKG_DIR/bin"
+cat <<EOF > "$DEST$PKG_DIR/bin/neofetch"
+#!/bin/sh
+$PKG_DIR/bin/fastfetch --logo linux --color-title blue --color-keys blue -s Title:Separator:OS:Host:Kernel:Uptime:Packages:Shell:Display:DE:WM:WMTheme:Theme:Icons:Font:Cursor:Terminal:TerminalFont:CPU:GPU:Memory:Swap:LocalIp:Battery:PowerAdapter:Locale:Break:Colors "\$@"
+EOF
+chmod 755 "$DEST$PKG_DIR/bin/neofetch"
 
-mkdir -p $PKG/install
-cat $CWD/slack-desc > $PKG/install/slack-desc
+# Pembersihan dokumentasi/share bawaan CMake yang tidak diperlukan di 001-core
+rm -rf "$DEST$PKG_DIR/Shared"
 
-cd $PKG
-makepkg ${MAKEPKGFLAGS} $MODULEPATH/packages/$PRGNAM-$VERSION-$ARCH-1_porteux.txz
+# 6. CALL GENERIC SPLITTER
+# Fastfetch biasanya mandiri, tapi jika ada library/header akan dipisah otomatis
+GoboSplitter "$PRGNAM" "$VERSION" "$DEST"
+
+# 7. CLEANUP
+rm -rf "$TMP"
+
+echo "========================================================"
+echo "Build $PRGNAM-$VERSION selesai."
+echo "Alias 'neofetch' telah ditambahkan ke $PKG_DIR/bin"
+echo "========================================================"
